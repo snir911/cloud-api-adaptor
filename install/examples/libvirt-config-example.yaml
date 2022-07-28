@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: peer-pods
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: peer-pods-secret
+  namespace: peer-pods
+type: Opaque
+stringData:
+  CLOUD_PROVIDER: "libvirt"
+  LIBVIRT_URI: "qemu+ssh://root@192.168.122.1/system"
+  LIBVIRT_NET: "default"
+  LIBVIRT_POOL: "default"
