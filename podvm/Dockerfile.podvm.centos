@@ -32,6 +32,8 @@ ENV CENTOS_IMAGE_CHECKSUM ${CENTOS_IMAGE_CHECKSUM}
 # of cracklib packer which is installed by default
 ENV PATH="/usr/bin:${PATH}"
 
+RUN rm -rf cloud-api-adaptor
+RUN git clone https://github.com/snir911/cloud-api-adaptor -b clean_git_trees_tmp
 RUN cd cloud-api-adaptor/podvm && \
      LIBC=gnu make image && \
      (make clean_sources; go clean --cache --modcache; rustup self uninstall -y; rm -rf /root/.cache/packer/; true)
