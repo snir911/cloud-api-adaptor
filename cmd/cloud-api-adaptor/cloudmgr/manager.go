@@ -1,3 +1,5 @@
+//go:build libvirt || aws || azure || ibmcloud || vsphere
+
 // (C) Copyright Confidential Containers Contributors
 // SPDX-License-Identifier: Apache-2.0
 
