@@ -5,19 +5,20 @@ ARG TARGETARCH
 ARG CGO_ENABLED=1
 ARG GOFLAGS
 
-WORKDIR /workspace
+WORKDIR /workspace/cloud-api-adaptor/peerpod-ctrl
+COPY ./ /workspace/cloud-api-adaptor
 RUN if [ "$CGO_ENABLED" = 1 ] ; then apt-get update -y && apt-get install -y libvirt-dev; fi
 # Copy the Go Modules manifests
-COPY go.mod go.mod
-COPY go.sum go.sum
+COPY ./peerpod-ctrl/go.mod go.mod
+COPY ./peerpod-ctrl/go.sum go.sum
 # cache deps before building and copying source so that we don't need to re-download as much
 # and so that source changes don't invalidate our downloaded layer
 RUN go mod download
 
 # Copy the go source
-COPY main.go main.go
-COPY api/ api/
-COPY controllers/ controllers/
+COPY ./peerpod-ctrl/main.go main.go
+COPY ./peerpod-ctrl/api/ api/
+COPY ./peerpod-ctrl/controllers/ controllers/
 
 # Build
 # the GOARCH has not a default value to allow the binary be built according to the host where the command
@@ -30,6 +31,6 @@ FROM fedora:36
 RUN if [ "$CGO_ENABLED" = 1 ] ; then dnf install -y libvirt-libs /usr/bin/ssh && dnf clean all; fi
 RUN dnf install -y libvirt-libs /usr/bin/ssh
 WORKDIR /
-COPY --from=builder /workspace/manager .
+COPY --from=builder /workspace/cloud-api-adaptor/peerpod-ctrl/manager .
 
 ENTRYPOINT ["/manager"]
