@@ -1,0 +1,59 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ami-create-job
+  namespace: confidential-containers-system
+spec:
+  parallelism: 1    
+  completions: 1    
+  template:         
+    metadata:
+      name: ami-create-job
+# needs hostnet for ocp
+    spec:
+      containers:
+      - name: ami-create-job
+        image: quay.io/confidential-containers/podvm-builder-centos
+        env:
+          - name: PODVM_DISTRO
+            value: rhel
+          - name: INSTANCE_TYPE
+            value: "t3.small"
+          - name: RUST_VERSION
+            value: "1.66.0"
+          - name: GO_VERSION
+            value: "1.19.6"
+          - name: PROTOC_VERSION
+            value: "3.11.4"
+#          - name: IMAGE_NAME
+#            value: "peer-pod-ami"
+#          - name: AWS_REGION
+#            value: ""
+#          - name: VPC_ID
+#            value: ""
+#          - name: SUBNET_ID
+#            value: ""
+        envFrom:
+        - secretRef:
+            name: peer-pods-secret
+        - configMapRef:
+            name: peer-pods-cm
+        command:
+        - /bin/sh
+        - -c
+        - |
+          PATH="/usr/bin:${PATH}"
+          packer plugins install github.com/hashicorp/amazon
+          cd cloud-api-adaptor && git pull --ff-only && cd -
+          cd kata-containers && git pull --ff-only && cd -
+          export MAC=$(curl -m 30 -s --show-error http://169.254.169.254/latest/meta-data/mac)
+          echo "### mac: ${MAC}"
+          [[ ! "${AWS_REGION}" ]] && export AWS_REGION=$(curl -m 30 -s --show-error http://169.254.169.254/latest/meta-data/placement/region)
+          echo "### region: ${AWS_REGION}"
+          [[ ! "${VPC_ID}" ]] && export VPC_ID=$(curl -m 30 -s --show-error http://169.254.169.254/latest/meta-data/network/interfaces/macs/${MAC}/vpc-id)
+          echo "### vpc-id: ${VPC_ID}"
+          [[ ! "${SUBNET_ID}" ]] && export SUBNET_ID=$(curl -m 30 -s --show-error http://169.254.169.254/latest/meta-data/network/interfaces/macs/${MAC}/subnet-id)
+          echo "### subnet-id: ${SUBNET_ID}"
+          cd cloud-api-adaptor/aws/image
+          LIBC=gnu make image
+      restartPolicy: Never
