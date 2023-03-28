@@ -39,7 +39,8 @@ func (_ *azureMgr) LoadEnv() {
 	defaultToEnv(&azurecfg.ClientId, "AZURE_CLIENT_ID")
 	defaultToEnv(&azurecfg.ClientSecret, "AZURE_CLIENT_SECRET")
 	defaultToEnv(&azurecfg.TenantId, "AZURE_TENANT_ID")
-
+	defaultToEnv(&azurecfg.SubscriptionId, "AZURE_SUBSCRIPTION_ID")
+	defaultToEnv(&azurecfg.Region, "AZURE_REGION")
 }
 
 func (_ *azureMgr) NewProvider() (cloud.Provider, error) {
