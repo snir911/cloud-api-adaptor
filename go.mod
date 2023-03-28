@@ -38,15 +38,19 @@ require (
 	github.com/Azure/azure-sdk-for-go v66.0.0+incompatible
 	github.com/Azure/go-autorest/autorest v0.11.27
 	github.com/Azure/go-autorest/autorest/azure/auth v0.5.11
+	github.com/Azure/go-autorest/autorest/to v0.4.0
 	github.com/BurntSushi/toml v1.2.0
 	github.com/IBM/ibm-cos-sdk-go v1.9.4
 	github.com/avast/retry-go/v4 v4.3.2
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.12.6
+	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f
 	github.com/kata-containers/kata-containers/src/runtime v0.0.0-20220913141151-9b49a6ddc6fd
 	github.com/sirupsen/logrus v1.9.0
+	golang.org/x/exp v0.0.0-20230224173230-c95f2b4c22f2
 	k8s.io/api v0.24.1
 	k8s.io/apimachinery v0.24.1
 	sigs.k8s.io/e2e-framework v0.0.8
+	sigs.k8s.io/kustomize v2.0.3+incompatible
 	sigs.k8s.io/kustomize/api v0.12.1
 	sigs.k8s.io/kustomize/kyaml v0.13.9
 )
@@ -54,10 +58,9 @@ require (
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.0.0 // indirect
 	github.com/Azure/go-autorest v14.2.0+incompatible // indirect
-	github.com/Azure/go-autorest/autorest/adal v0.9.18 // indirect
+	github.com/Azure/go-autorest/autorest/adal v0.9.22 // indirect
 	github.com/Azure/go-autorest/autorest/azure/cli v0.4.5 // indirect
 	github.com/Azure/go-autorest/autorest/date v0.3.0 // indirect
-	github.com/Azure/go-autorest/autorest/to v0.4.0 // indirect
 	github.com/Azure/go-autorest/autorest/validation v0.3.1 // indirect
 	github.com/Azure/go-autorest/logger v0.2.1 // indirect
 	github.com/Azure/go-autorest/tracing v0.6.0 // indirect
@@ -115,7 +118,7 @@ require (
 	github.com/xlab/treeprint v1.1.0 // indirect
 	go.mongodb.org/mongo-driver v1.10.0 // indirect
 	go.starlark.net v0.0.0-20200306205701-8dd3e2ee1dd5 // indirect
-	golang.org/x/crypto v0.0.0-20220622213112-05595931fe9d // indirect
+	golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa // indirect
 	golang.org/x/net v0.5.0 // indirect
 	golang.org/x/oauth2 v0.0.0-20220622183110-fd043fe589d2 // indirect
 	golang.org/x/term v0.4.0 // indirect

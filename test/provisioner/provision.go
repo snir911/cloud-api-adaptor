@@ -7,10 +7,10 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path"
 	"time"
 
 	"github.com/BurntSushi/toml"
+	log "github.com/sirupsen/logrus"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
@@ -29,6 +29,7 @@ type CloudProvisioner interface {
 	CreateVPC(ctx context.Context, cfg *envconf.Config) error
 	DeleteCluster(ctx context.Context, cfg *envconf.Config) error
 	DeleteVPC(ctx context.Context, cfg *envconf.Config) error
+	GetProperties(ctx context.Context, cfg *envconf.Config) map[string]string
 	UploadPodvm(imagePath string, ctx context.Context, cfg *envconf.Config) error
 }
 
@@ -42,23 +43,41 @@ type CloudAPIAdaptor struct {
 	cloudProvider        string               // Cloud provider
 	controllerDeployment *appsv1.Deployment   // Represents the controller manager deployment
 	namespace            string               // The CoCo namespace
-	kustomizeHelper      *KustomizeHelper     // Pointer to the kustomize helper
+	installOverlay       InstallOverlay       // Pointer to the kustomize overlay
 	runtimeClass         *nodev1.RuntimeClass // The Kata Containers runtimeclass
 }
 
-func NewCloudAPIAdaptor(provider string) (p *CloudAPIAdaptor) {
+type newInstallOverlayFunc func() (InstallOverlay, error)
+
+var newInstallOverlayFunctions = make(map[string]newInstallOverlayFunc)
+
+// InstallOverlay defines common operations to an install overlay (install/overlays/*)
+type InstallOverlay interface {
+	// Apply applies the overlay. Equivalent to the `kubectl apply -k` command
+	Apply(ctx context.Context, cfg *envconf.Config) error
+	// Delete deletes the overlay. Equivalent to the `kubectl delete -k` command
+	Delete(ctx context.Context, cfg *envconf.Config) error
+	// Edit changes overlay files
+	Edit(ctx context.Context, cfg *envconf.Config, properties map[string]string) error
+}
+
+func NewCloudAPIAdaptor(provider string) (*CloudAPIAdaptor, error) {
 	namespace := "confidential-containers-system"
-	overlayDir := path.Join("../../install/overlays", provider)
+
+	overlay, err := GetInstallOverlay(provider)
+	if err != nil {
+		return nil, err
+	}
 
 	return &CloudAPIAdaptor{
-		caaDaemonSet:         &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "cloud-api-adaptor-daemonset-" + provider, Namespace: namespace}},
+		caaDaemonSet:         &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "cloud-api-adaptor-daemonset", Namespace: namespace}},
 		ccDaemonSet:          &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "cc-operator-daemon-install", Namespace: namespace}},
 		cloudProvider:        provider,
 		controllerDeployment: &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "cc-operator-controller-manager", Namespace: namespace}},
 		namespace:            namespace,
-		kustomizeHelper:      &KustomizeHelper{configDir: overlayDir},
+		installOverlay:       overlay,
 		runtimeClass:         &nodev1.RuntimeClass{ObjectMeta: metav1.ObjectMeta{Name: "kata", Namespace: ""}},
-	}
+	}, nil
 }
 
 // GetCloudProvisioner returns a CloudProvisioner implementation
@@ -83,6 +102,17 @@ func GetCloudProvisioner(provider string, propertiesFile string) (CloudProvision
 	return newProvisioner(properties)
 }
 
+// GetInstallOverlay returns the InstallOverlay implementation for the provider
+func GetInstallOverlay(provider string) (InstallOverlay, error) {
+
+	overlayFunc, ok := newInstallOverlayFunctions[provider]
+	if !ok {
+		return nil, fmt.Errorf("Not implemented install overlay for %s\n", provider)
+	}
+
+	return overlayFunc()
+}
+
 // Deletes the peer pods installation including the controller manager.
 func (p *CloudAPIAdaptor) Delete(ctx context.Context, cfg *envconf.Config) error {
 	client, err := cfg.NewClient()
@@ -100,8 +130,8 @@ func (p *CloudAPIAdaptor) Delete(ctx context.Context, cfg *envconf.Config) error
 		return err
 	}
 
-	fmt.Println("Uninstall CoCo and cloud-api-adaptor")
-	if err = p.kustomizeHelper.Delete(ctx, cfg); err != nil {
+	log.Info("Uninstall CoCo and cloud-api-adaptor")
+	if err = p.installOverlay.Delete(ctx, cfg); err != nil {
 		return err
 	}
 
@@ -116,13 +146,13 @@ func (p *CloudAPIAdaptor) Delete(ctx context.Context, cfg *envconf.Config) error
 
 	deployments := &appsv1.DeploymentList{Items: []appsv1.Deployment{*p.controllerDeployment}}
 
-	fmt.Println("Uninstall the controller manager")
+	log.Info("Uninstall the controller manager")
 	err = decoder.DecodeEachFile(ctx, os.DirFS("../../install/yamls"), "deploy.yaml", decoder.DeleteHandler(resources))
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("Wait for the %s deployment be deleted\n", p.controllerDeployment.GetName())
+	log.Infof("Wait for the %s deployment be deleted\n", p.controllerDeployment.GetName())
 	if err = wait.For(conditions.New(resources).ResourcesDeleted(deployments),
 		wait.WithTimeout(time.Minute*1)); err != nil {
 		return err
@@ -132,14 +162,14 @@ func (p *CloudAPIAdaptor) Delete(ctx context.Context, cfg *envconf.Config) error
 }
 
 // Deploy installs Peer Pods on the cluster.
-func (p *CloudAPIAdaptor) Deploy(ctx context.Context, cfg *envconf.Config) error {
+func (p *CloudAPIAdaptor) Deploy(ctx context.Context, cfg *envconf.Config, props map[string]string) error {
 	client, err := cfg.NewClient()
 	if err != nil {
 		return err
 	}
 	resources := client.Resources(p.namespace)
 
-	fmt.Println("Install the controller manager")
+	log.Info("Install the controller manager")
 	err = decoder.DecodeEachFile(ctx, os.DirFS("../../install/yamls"), "deploy.yaml", decoder.CreateIgnoreAlreadyExists(resources))
 	if err != nil {
 		return err
@@ -147,30 +177,35 @@ func (p *CloudAPIAdaptor) Deploy(ctx context.Context, cfg *envconf.Config) error
 
 	fmt.Printf("Wait for the %s deployment be available\n", p.controllerDeployment.GetName())
 	if err = wait.For(conditions.New(resources).DeploymentConditionMatch(p.controllerDeployment, appsv1.DeploymentAvailable, corev1.ConditionTrue),
-		wait.WithTimeout(time.Minute*1)); err != nil {
+		wait.WithTimeout(time.Minute*10)); err != nil {
 		return err
 	}
 
-	fmt.Println("Install CoCo and cloud-api-adaptor")
-	if err := p.kustomizeHelper.Apply(ctx, cfg); err != nil {
+	log.Info("Customize the overlay yaml file")
+	if err := p.installOverlay.Edit(ctx, cfg, props); err != nil {
+		return err
+	}
+	log.Info("Install CoCo and cloud-api-adaptor")
+	if err := p.installOverlay.Apply(ctx, cfg); err != nil {
 		return err
 	}
 
 	// Wait for the CoCo installer and CAA pods be ready
 	daemonSetList := map[*appsv1.DaemonSet]time.Duration{
 		p.ccDaemonSet:  time.Minute * 10,
-		p.caaDaemonSet: time.Minute * 2,
+		p.caaDaemonSet: time.Minute * 5,
 	}
 
 	for ds, timeout := range daemonSetList {
 		// Wait for the daemonset to have at least one pod running then wait for each pod
 		// be ready.
 
+		fmt.Printf("Wait for the %s DaemonSet be available\n", ds.GetName())
 		if err = wait.For(conditions.New(resources).ResourceMatch(ds, func(object k8s.Object) bool {
 			ds = object.(*appsv1.DaemonSet)
 
 			return ds.Status.CurrentNumberScheduled > 0
-		}), wait.WithTimeout(time.Second*20)); err != nil {
+		}), wait.WithTimeout(time.Second*60)); err != nil {
 			return err
 		}
 		pods, err := GetDaemonSetOwnedPods(ctx, cfg, ds)

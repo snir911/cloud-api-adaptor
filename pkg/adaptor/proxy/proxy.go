@@ -13,11 +13,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"reflect"
 	"sync"
 	"time"
 
-	tlsutil "github.com/confidential-containers/cloud-api-adaptor/pkg/util/tls"
+	"github.com/confidential-containers/cloud-api-adaptor/pkg/util/tlsutil"
 	"github.com/containerd/ttrpc"
 	pb "github.com/kata-containers/kata-containers/src/runtime/virtcontainers/pkg/agent/protocols/grpc"
 	"google.golang.org/grpc"
@@ -47,12 +46,16 @@ type AgentProxy interface {
 	Start(ctx context.Context, serverURL *url.URL) error
 	Ready() chan struct{}
 	Shutdown() error
+	CAService() tlsutil.CAService
+	ClientCA() (certPEM []byte)
 }
 
 type agentProxy struct {
 	tlsConfig     *tlsutil.TLSConfig
+	caService     tlsutil.CAService
 	readyCh       chan struct{}
 	stopCh        chan struct{}
+	serverName    string
 	socketPath    string
 	criSocketPath string
 	pauseImage    string
@@ -62,9 +65,10 @@ type agentProxy struct {
 	stopOnce      sync.Once
 }
 
-func NewAgentProxy(socketPath, criSocketPath string, pauseImage string, tlsConfig *tlsutil.TLSConfig) AgentProxy {
+func NewAgentProxy(serverName, socketPath, criSocketPath string, pauseImage string, tlsConfig *tlsutil.TLSConfig, caService tlsutil.CAService) AgentProxy {
 
 	return &agentProxy{
+		serverName:    serverName,
 		socketPath:    socketPath,
 		criSocketPath: criSocketPath,
 		readyCh:       make(chan struct{}),
@@ -74,6 +78,7 @@ func NewAgentProxy(socketPath, criSocketPath string, pauseImage string, tlsConfi
 		criTimeout:    defaultCriTimeout,
 		pauseImage:    pauseImage,
 		tlsConfig:     tlsConfig,
+		caService:     caService,
 	}
 }
 
@@ -85,7 +90,7 @@ func (p *agentProxy) dial(ctx context.Context, address string) (net.Conn, error)
 		DialContext(ctx context.Context, network, address string) (net.Conn, error)
 	}
 
-	if p.tlsConfig != nil && !reflect.DeepEqual(tlsutil.TLSConfig{}, *p.tlsConfig) {
+	if p.tlsConfig != nil {
 
 		// Create a TLS configuration object
 		config, err := tlsutil.GetTLSConfigFor(p.tlsConfig)
@@ -97,7 +102,13 @@ func (p *agentProxy) dial(ctx context.Context, address string) (net.Conn, error)
 		// Since it's not possible to know the IP address of the pod VM apriori,
 		// we are using a well-defined hostname here. Other option is to create
 		// certificates with IP SAN having all the IPs in the network range
-		config.ServerName = podvmServername
+		// When CA service is enabled, a server certificate is automatically generated for
+		// the instance VM name.
+		if p.caService != nil {
+			config.ServerName = p.serverName
+		} else {
+			config.ServerName = podvmServername
+		}
 
 		dialer = &tls.Dialer{
 			Config: config,
@@ -255,4 +266,21 @@ func (p *agentProxy) Shutdown() error {
 		close(p.stopCh)
 	})
 	return nil
+}
+
+func (p *agentProxy) CAService() tlsutil.CAService {
+	return p.caService
+}
+
+func (p *agentProxy) ClientCA() (certPEM []byte) {
+
+	if p.tlsConfig == nil {
+		return nil
+	}
+	if p.tlsConfig.CAFile != "" {
+		// When a client CA file is explicitly specified, we don't need to put it in cloud-init data
+		return nil
+	}
+
+	return p.tlsConfig.CertData
 }

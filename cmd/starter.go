@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 
+	"github.com/coreos/go-systemd/daemon"
 	"golang.org/x/sys/unix"
 )
 
@@ -19,6 +20,7 @@ type Starter interface {
 }
 type Service interface {
 	Start(context.Context) error
+	Ready() chan struct{}
 }
 
 type Config interface {
@@ -31,6 +33,7 @@ type starter struct {
 type starterService struct {
 	Service
 	errorCh chan error
+	readyCh chan struct{}
 }
 
 func NewStarter(services ...Service) Starter {
@@ -44,6 +47,12 @@ func NewStarter(services ...Service) Starter {
 		s.services = append(s.services, starterService)
 	}
 	return &s
+}
+
+func sdNotify(state string) {
+	if _, err := daemon.SdNotify(false, state); err != nil {
+		log.Printf("failed to send a notification to systemd: %v", err)
+	}
 }
 
 func (s *starter) Start(ctx context.Context) error {
@@ -79,6 +88,29 @@ func (s *starter) Start(ctx context.Context) error {
 				cancel()
 				service.errorCh <- err
 			}
+		}()
+
+		service.readyCh = service.Ready()
+	}
+
+	if os.Getenv("NOTIFY_SOCKET") != "" {
+		// Notify systemd when the services become ready using the sd_notify protocol
+		// https://www.freedesktop.org/software/systemd/man/sd_notify.html#Description
+
+		go func() {
+			for _, service := range s.services {
+				select {
+				case <-ctx.Done():
+					return
+				case <-service.readyCh:
+				}
+			}
+
+			sdNotify(daemon.SdNotifyReady)
+
+			<-ctx.Done()
+
+			sdNotify(daemon.SdNotifyStopping)
 		}()
 	}
 

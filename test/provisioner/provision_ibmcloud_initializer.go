@@ -29,8 +29,10 @@ type IBMCloudProperties struct {
 	SecurityGroupID string
 	IamServiceURL   string
 	InstanceProfile string
+	KubeVersion     string
 	PodvmImageID    string
 	PodvmImageArch  string
+	PublicGatewayID string
 	Region          string
 	ResourceGroupID string
 	SshKeyContent   string
@@ -42,6 +44,7 @@ type IBMCloudProperties struct {
 	VpcID           string
 	VpcServiceURL   string
 	WorkerFlavor    string
+	WorkerOS        string
 	Zone            string
 
 	WorkerCount   int
@@ -53,43 +56,17 @@ type IBMCloudProperties struct {
 
 var IBMCloudProps = &IBMCloudProperties{}
 
-func init() {
-	initLogger()
-}
-
-func initLogger() {
-	level := os.Getenv("LOG_LEVEL")
-	switch level {
-	case "trace":
-		log.SetLevel(log.TraceLevel)
-	case "debug":
-		log.SetLevel(log.DebugLevel)
-	case "info":
-		log.SetLevel(log.InfoLevel)
-	case "warn":
-		log.SetLevel(log.WarnLevel)
-	case "error":
-		log.SetLevel(log.ErrorLevel)
-	case "fatal":
-		log.SetLevel(log.FatalLevel)
-	case "panic":
-		log.SetLevel(log.PanicLevel)
-	default:
-		log.SetLevel(log.InfoLevel)
-	}
-}
-
 func initProperties(properties map[string]string) error {
 	IBMCloudProps = &IBMCloudProperties{
-		ApiKey:        properties["APIKEY"],
-		Bucket:        properties["COS_BUCKET"],
-		ClusterName:   properties["CLUSTER_NAME"],
-		CosApiKey:     properties["COS_APIKEY"],
-		CosInstanceID: properties["COS_INSTANCE_ID"],
-		CosServiceURL: properties["COS_SERVICE_URL"],
-		IamServiceURL: properties["IAM_SERVICE_URL"],
-		// IsSelfManaged    : properties["IS_SELF_MANAGED_CLUSTER"]
+		ApiKey:          properties["APIKEY"],
+		Bucket:          properties["COS_BUCKET"],
+		ClusterName:     properties["CLUSTER_NAME"],
+		CosApiKey:       properties["COS_APIKEY"],
+		CosInstanceID:   properties["COS_INSTANCE_ID"],
+		CosServiceURL:   properties["COS_SERVICE_URL"],
+		IamServiceURL:   properties["IAM_SERVICE_URL"],
 		InstanceProfile: properties["INSTANCE_PROFILE_NAME"],
+		KubeVersion:     properties["KUBE_VERSION"],
 		PodvmImageID:    properties["PODVM_IMAGE_ID"],
 		PodvmImageArch:  properties["PODVM_IMAGE_ARCH"],
 		Region:          properties["REGION"],
@@ -100,8 +77,12 @@ func initProperties(properties map[string]string) error {
 		VpcName:         properties["VPC_NAME"],
 		VpcServiceURL:   properties["VPC_SERVICE_URL"],
 		WorkerFlavor:    properties["WORKER_FLAVOR"],
-		// WorkerCount   : properties["WORKERS_COUNT"]
-		Zone: properties["ZONE"],
+		WorkerOS:        properties["WORKER_OPERATION_SYSTEM"],
+		Zone:            properties["ZONE"],
+		SshKeyID:        properties["SSH_KEY_ID"],
+		SubnetID:        properties["VPC_SUBNET_ID"],
+		SecurityGroupID: properties["VPC_SECURITY_GROUP_ID"],
+		VpcID:           properties["VPC_ID"],
 	}
 
 	if len(IBMCloudProps.ClusterName) <= 0 {
@@ -141,8 +122,11 @@ func initProperties(properties map[string]string) error {
 	if len(IBMCloudProps.ApiKey) <= 0 {
 		return errors.New("APIKEY was not set.")
 	}
-	if len(IBMCloudProps.Region) <= 0 {
-		return errors.New("REGION was not set.")
+	if len(IBMCloudProps.ResourceGroupID) <= 0 {
+		return errors.New("RESOURCE_GROUP_ID was not set.")
+	}
+	if len(IBMCloudProps.Zone) <= 0 {
+		return errors.New("ZONE was not set.")
 	}
 
 	// IAM_SERVICE_URL can overwrite default IamServiceURL, for example: IAM_SERVICE_URL="https://iam.test.cloud.ibm.com/identity/token"
@@ -157,21 +141,40 @@ func initProperties(properties map[string]string) error {
 	}
 	log.Infof("VpcServiceURL is: %s.", IBMCloudProps.VpcServiceURL)
 
-	needProvisionStr := os.Getenv("TEST_E2E_PROVISION")
+	needProvisionStr := os.Getenv("TEST_PROVISION")
 	if strings.EqualFold(needProvisionStr, "yes") || strings.EqualFold(needProvisionStr, "true") {
-		if len(IBMCloudProps.ResourceGroupID) <= 0 {
-			return errors.New("RESOURCE_GROUP_ID was not set.")
+		if len(IBMCloudProps.Region) <= 0 {
+			return errors.New("REGION was not set.")
 		}
-		if len(IBMCloudProps.Zone) <= 0 {
-			return errors.New("ZONE was not set.")
+		if len(IBMCloudProps.KubeVersion) <= 0 {
+			return errors.New("KUBE_VERSION was not set, get it via command: ibmcloud cs versions")
+		}
+		if len(IBMCloudProps.WorkerOS) <= 0 {
+			return errors.New("WORKER_OPERATION_SYSTEM was not set, set it like: UBUNTU_20_64, UBUNTU_18_S390X")
 		}
 
 		if err := initClustersAPI(); err != nil {
 			return err
 		}
+	} else {
+		if len(IBMCloudProps.PodvmImageID) <= 0 {
+			return errors.New("PODVM_IMAGE_ID was not set, set it with existing custom image id in VPC")
+		}
+		if len(IBMCloudProps.SshKeyID) <= 0 {
+			return errors.New("SSH_KEY_ID was not set, set it with existing SSH key id in VPC")
+		}
+		if len(IBMCloudProps.SubnetID) <= 0 {
+			return errors.New("VPC_SUBNET_ID was not set, set it with existing subnet id in VPC")
+		}
+		if len(IBMCloudProps.SecurityGroupID) <= 0 {
+			return errors.New("VPC_SECURITY_GROUP_ID was not set, set it with existing security group id in VPC")
+		}
+		if len(IBMCloudProps.VpcID) <= 0 {
+			return errors.New("VPC_ID was not set, set it with existing VPC id")
+		}
 	}
 
-	podvmImage := os.Getenv("TEST_E2E_PODVM_IMAGE")
+	podvmImage := os.Getenv("TEST_PODVM_IMAGE")
 	if len(podvmImage) > 0 {
 		if len(IBMCloudProps.CosApiKey) <= 0 {
 			return errors.New("COS_APIKEY was not set.")

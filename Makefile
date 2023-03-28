@@ -11,7 +11,7 @@ RELEASE_BUILD ?= false
 CLOUD_PROVIDER ?=
 GOOPTIONS   ?= GOOS=linux GOARCH=$(ARCH) CGO_ENABLED=0
 GOFLAGS     ?=
-BINARIES    := cloud-api-adaptor agent-protocol-forwarder cluster-provisioner
+BINARIES    := cloud-api-adaptor agent-protocol-forwarder
 SOURCEDIRS  := ./cmd ./pkg
 PACKAGES    := $(shell go list $(addsuffix /...,$(SOURCEDIRS)))
 SOURCES     := $(shell find $(SOURCEDIRS) -name '*.go' -print)
@@ -64,7 +64,7 @@ comma := ,
 GOFLAGS += -tags=$(subst $(space),$(comma),$(strip $(BUILTIN_CLOUD_PROVIDERS)))
 
 ifneq (,$(filter libvirt,$(BUILTIN_CLOUD_PROVIDERS)))
-cloud-api-adaptor cluster-provisioner: GOOPTIONS := $(subst CGO_ENABLED=0,CGO_ENABLED=1,$(GOOPTIONS))
+cloud-api-adaptor: GOOPTIONS := $(subst CGO_ENABLED=0,CGO_ENABLED=1,$(GOOPTIONS))
 endif
 
 $(BINARIES): .git-commit $(SOURCES)

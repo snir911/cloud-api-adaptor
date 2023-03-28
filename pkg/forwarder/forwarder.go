@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"reflect"
 	"sync"
 
 	"github.com/containerd/ttrpc"
@@ -19,7 +18,7 @@ import (
 	"github.com/confidential-containers/cloud-api-adaptor/pkg/forwarder/interceptor"
 	"github.com/confidential-containers/cloud-api-adaptor/pkg/podnetwork"
 	"github.com/confidential-containers/cloud-api-adaptor/pkg/podnetwork/tunneler"
-	tlsutil "github.com/confidential-containers/cloud-api-adaptor/pkg/util/tls"
+	"github.com/confidential-containers/cloud-api-adaptor/pkg/util/tlsutil"
 )
 
 var logger = log.New(log.Writer(), "[forwarder] ", log.LstdFlags|log.Lmsgprefix)
@@ -39,11 +38,16 @@ type Config struct {
 	PodNetwork   *tunneler.Config `json:"pod-network"`
 	PodNamespace string           `json:"pod-namespace"`
 	PodName      string           `json:"pod-name"`
+
+	TLSServerKey  string `json:"tls-server-key,omitempty"`
+	TLSServerCert string `json:"tls-server-cert,omitempty"`
+	TLSClientCA   string `json:"tls-client-ca,omitempty"`
 }
 
 type Daemon interface {
 	Start(ctx context.Context) error
 	Shutdown() error
+	Ready() chan struct{}
 	Addr() string
 }
 
@@ -58,6 +62,15 @@ type daemon struct {
 }
 
 func NewDaemon(spec *Config, listenAddr string, tlsConfig *tlsutil.TLSConfig, interceptor interceptor.Interceptor, podNode podnetwork.PodNode) Daemon {
+
+	if tlsConfig != nil && !tlsConfig.HasCertAuth() {
+		tlsConfig.CertData = []byte(spec.TLSServerCert)
+		tlsConfig.KeyData = []byte(spec.TLSServerKey)
+	}
+
+	if tlsConfig != nil && !tlsConfig.HasCA() {
+		tlsConfig.CAData = []byte(spec.TLSClientCA)
+	}
 
 	daemon := &daemon{
 		listenAddr:  listenAddr,
@@ -89,7 +102,7 @@ func (d *daemon) Start(ctx context.Context) error {
 	var listener net.Listener
 
 	logger.Printf("Starting agent-protocol-forwarder listener on address %v", d.listenAddr)
-	if d.tlsConfig != nil && !reflect.DeepEqual(tlsutil.TLSConfig{}, *d.tlsConfig) {
+	if d.tlsConfig != nil {
 		logger.Printf("TLS is configured. Configure TLS listener")
 
 		// Create a TLS configuration object
@@ -159,6 +172,10 @@ func (d *daemon) Shutdown() error {
 		close(d.stopCh)
 	})
 	return nil
+}
+
+func (d *daemon) Ready() chan struct{} {
+	return d.readyCh
 }
 
 func (d *daemon) Addr() string {

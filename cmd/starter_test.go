@@ -8,16 +8,23 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/coreos/go-systemd/daemon"
 	"golang.org/x/sys/unix"
 )
 
 type mockService struct {
-	stopCh chan struct{}
-	error  error
+	once    sync.Once
+	readyCh chan struct{}
+	stopCh  chan struct{}
+	error   error
 }
 
 func (m *mockService) Start(ctx context.Context) error {
@@ -32,21 +39,32 @@ func (m *mockService) Start(ctx context.Context) error {
 		return nil
 	}
 
+	close(m.Ready())
+
 	<-ctx.Done()
 
 	if err := ctx.Err(); err != context.Canceled {
 		return errors.New("service canceled")
 	}
-	log.Printf("Shutted down")
+	log.Printf("Shut down")
 
 	return nil
+}
+
+func (m *mockService) Ready() chan struct{} {
+	m.once.Do(func() {
+		m.readyCh = make(chan struct{})
+	})
+	return m.readyCh
 }
 
 func run(errCh chan error, exitCh chan struct{}, fn func() error) string {
 	defer close(errCh)
 
-	Exit = func(_ int) {
-		close(exitCh)
+	if exitCh != nil {
+		Exit = func(_ int) {
+			close(exitCh)
+		}
 	}
 
 	old := log.Writer()
@@ -73,6 +91,18 @@ func kill(t *testing.T) {
 	if err := unix.Kill(unix.Getpid(), unix.SIGINT); err != nil {
 		t.Fatalf("Expect no error, got %#v", err)
 	}
+}
+
+func TestMain(m *testing.M) {
+
+	// Reset environment variables before running each test
+	for _, key := range []string{"NOTIFY_SOCKET"} {
+		old := os.Getenv(key)
+		os.Setenv(key, "")
+		defer os.Setenv(key, old)
+	}
+
+	os.Exit(m.Run())
 }
 
 func TestStarter(t *testing.T) {
@@ -109,7 +139,7 @@ func TestStarter(t *testing.T) {
 	if err := <-errCh; err != nil {
 		t.Fatalf("Expect no error, got %#v", err)
 	}
-	msg := "Signal interrupt received. Shutting down\nShutted down\nSignal interrupt received again. Force exiting\nKilled\n"
+	msg := "Signal interrupt received. Shutting down\nShut down\nSignal interrupt received again. Force exiting\nKilled\n"
 	if e, a := msg, output; e != a {
 		t.Fatalf("Expect %q, got %q", e, a)
 	}
@@ -151,7 +181,7 @@ func TestStarterWithError(t *testing.T) {
 	if e, a := serviceError, errors.Unwrap(err); e != a {
 		t.Fatalf("Expect %v, got %v", e, a)
 	}
-	if e, a := "Shutted down\n", output; e != a {
+	if e, a := "Shut down\n", output; e != a {
 		t.Fatalf("Expect %q, got %q", e, a)
 	}
 }
@@ -211,5 +241,112 @@ func TestStarterList(t *testing.T) {
 				t.Fatalf("Expect %v, got %v", e, a)
 			}
 		}
+	}
+}
+
+func TestStarterServiceReady(t *testing.T) {
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	service := &mockService{}
+
+	starter := NewStarter(service)
+
+	errCh := make(chan error, 1)
+	var output string
+
+	select {
+	case <-service.Ready():
+		t.Fatalf("becomes ready before started")
+	default:
+	}
+
+	go func() {
+		output = run(errCh, nil, func() error {
+			return starter.Start(ctx)
+		})
+	}()
+
+	select {
+	case <-ctx.Done():
+		t.Fatalf("completed before becoming ready")
+	case <-service.Ready():
+	}
+
+	cancel()
+
+	<-ctx.Done()
+
+	if err := <-errCh; err != nil {
+		t.Fatalf("Expect no error, got %v", err)
+	}
+	expected := "Shut down\n"
+	if expected != output {
+		t.Fatalf("Expect %q, got %q", expected, output)
+	}
+}
+
+func checkNotification(t *testing.T, conn *net.UnixConn, expected string) {
+	t.Helper()
+
+	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatalf("Expect no error, got %v", err)
+	}
+
+	buf := make([]byte, 256)
+	n, err := conn.Read(buf)
+	if err != nil {
+		t.Fatalf("Expect no error, got %#v", err)
+	}
+
+	actual := string(buf[0:n])
+	if expected != actual {
+		t.Fatalf("Expect %q, got %q", expected, actual)
+	}
+}
+
+func TestSDNotify(t *testing.T) {
+
+	socket := filepath.Join(t.TempDir(), "notify")
+
+	t.Setenv("NOTIFY_SOCKET", socket)
+
+	conn, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: socket, Net: "unixgram"})
+	if err != nil {
+		t.Fatalf("Expect no error, got %v", err)
+	}
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Fatalf("Expect no error, got %v", err)
+		}
+	}()
+
+	starter := NewStarter(&mockService{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	var output string
+
+	go func() {
+		output = run(errCh, nil, func() error {
+			return starter.Start(ctx)
+		})
+	}()
+
+	checkNotification(t, conn, daemon.SdNotifyReady)
+
+	cancel()
+
+	checkNotification(t, conn, daemon.SdNotifyStopping)
+
+	if err := <-errCh; err != nil {
+		t.Fatalf("Expect no error, got %v", err)
+	}
+
+	if expected := "Shut down\n"; expected != output {
+		t.Fatalf("Expect %q, got %q", expected, output)
 	}
 }
