@@ -11,14 +11,31 @@ spec:
       name: ami-create-job
 # needs hostnet for ocp
     spec:
+      volumes:
+      - name: shared-data
+        emptyDir: {}
+
+      initContainers:
+      - name: payload
+        # change
+        image: quay.io/snir/podvm-binaries-rhel
+        volumeMounts:
+        - name: shared-data
+          mountPath: /payload
+        command: ["/bin/sh"]
+        args: ["-c", "cp /podvm-binaries.tar.gz /payload/ && cp /pause-bundle.tar.gz /payload/"]
       containers:
       - name: ami-create-job
-        image: quay.io/confidential-containers/podvm-builder-centos
+        image: registry.access.redhat.com/ubi8/ubi:8.7
+        volumeMounts:
+        - name: shared-data
+          mountPath: /payload
         env:
           - name: PODVM_DISTRO
             value: rhel
+          #change
           - name: INSTANCE_TYPE
-            value: "t3.small"
+            value: "t2.small"
           - name: RUST_VERSION
             value: "1.66.0"
           - name: GO_VERSION
@@ -42,10 +59,14 @@ spec:
         - /bin/sh
         - -c
         - |
+          yum install -y yum-utils make git
+          yum-config-manager --add-repo https://rpm.releases.hashicorp.com/RHEL/hashicorp.repo
+          yum -y install packer
           PATH="/usr/bin:${PATH}"
           packer plugins install github.com/hashicorp/amazon
-          cd cloud-api-adaptor && git pull --ff-only && cd -
-          cd kata-containers && git pull --ff-only && cd -
+          git clone https://github.com/bpradipt/cloud-api-adaptor.git -b podvm_binaries
+          tar xvf /payload/pause-bundle.tar.gz -C cloud-api-adaptor/podvm/files
+          tar xvf /payload/podvm-binaries.tar.gz -C cloud-api-adaptor/podvm/files
           export MAC=$(curl -m 30 -s --show-error http://169.254.169.254/latest/meta-data/mac)
           echo "### mac: ${MAC}"
           [[ ! "${AWS_REGION}" ]] && export AWS_REGION=$(curl -m 30 -s --show-error http://169.254.169.254/latest/meta-data/placement/region)
@@ -55,5 +76,5 @@ spec:
           [[ ! "${SUBNET_ID}" ]] && export SUBNET_ID=$(curl -m 30 -s --show-error http://169.254.169.254/latest/meta-data/network/interfaces/macs/${MAC}/subnet-id)
           echo "### subnet-id: ${SUBNET_ID}"
           cd cloud-api-adaptor/aws/image
-          LIBC=gnu make image
+          LIBC=gnu make BINARIES= PAUSE_BUNDLE= image
       restartPolicy: Never
