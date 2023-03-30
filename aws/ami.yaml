@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: ami-create-job
-  namespace: confidential-containers-system
+  namespace: openshift-sandboxed-containers-operator
 spec:
   parallelism: 1    
   completions: 1    
@@ -15,6 +15,10 @@ spec:
       - name: shared-data
         emptyDir: {}
 
+      hostNetwork: true # needed for imds access
+      securityContext:
+        runAsUser: 0 # needed for container mode dnf access
+
       initContainers:
       - name: payload
         # change
@@ -24,6 +28,7 @@ spec:
           mountPath: /payload
         command: ["/bin/sh"]
         args: ["-c", "cp /podvm-binaries.tar.gz /payload/ && cp /pause-bundle.tar.gz /payload/"]
+
       containers:
       - name: ami-create-job
         image: registry.access.redhat.com/ubi8/ubi:8.7
@@ -33,15 +38,8 @@ spec:
         env:
           - name: PODVM_DISTRO
             value: rhel
-          #change
           - name: INSTANCE_TYPE
-            value: "t2.small"
-          - name: RUST_VERSION
-            value: "1.66.0"
-          - name: GO_VERSION
-            value: "1.19.6"
-          - name: PROTOC_VERSION
-            value: "3.11.4"
+            value: "t2.small" # comment
 #          - name: IMAGE_NAME
 #            value: "peer-pod-ami"
 #          - name: AWS_REGION
@@ -55,6 +53,7 @@ spec:
             name: peer-pods-secret
         - configMapRef:
             name: peer-pods-cm
+            optional: true
         command:
         - /bin/sh
         - -c
@@ -64,7 +63,7 @@ spec:
           yum -y install packer
           PATH="/usr/bin:${PATH}"
           packer plugins install github.com/hashicorp/amazon
-          git clone https://github.com/bpradipt/cloud-api-adaptor.git -b podvm_binaries
+          git clone https://github.com/confidential-containers/cloud-api-adaptor.git
           tar xvf /payload/pause-bundle.tar.gz -C cloud-api-adaptor/podvm/files
           tar xvf /payload/podvm-binaries.tar.gz -C cloud-api-adaptor/podvm/files
           export MAC=$(curl -m 30 -s --show-error http://169.254.169.254/latest/meta-data/mac)
@@ -76,5 +75,6 @@ spec:
           [[ ! "${SUBNET_ID}" ]] && export SUBNET_ID=$(curl -m 30 -s --show-error http://169.254.169.254/latest/meta-data/network/interfaces/macs/${MAC}/subnet-id)
           echo "### subnet-id: ${SUBNET_ID}"
           cd cloud-api-adaptor/aws/image
-          LIBC=gnu make BINARIES= PAUSE_BUNDLE= image
+          LIBC=gnu make BINARIES= PAUSE_BUNDLE= image && \
+          echo "Set the AMI_ID ^ to your Secret/peer-pods-secret or ConfigMap/peer-pods-cm object"
       restartPolicy: Never
