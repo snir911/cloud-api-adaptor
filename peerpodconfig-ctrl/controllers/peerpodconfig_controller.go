@@ -19,7 +19,7 @@ package controllers
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"os"
 	"path"
 	"strconv"
@@ -28,6 +28,7 @@ import (
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -66,6 +67,7 @@ type PeerPodConfigReconciler struct {
 //+kubebuilder:rbac:groups="",resources=configmaps,verbs=create;get;update;list;watch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=create;get;update;list;watch
 //+kubebuilder:rbac:groups="";machineconfiguration.openshift.io,resources=nodes;machineconfigs;machineconfigpools;containerruntimeconfigs;pods;services;services/finalizers;endpoints;persistentvolumeclaims;events;configmaps;secrets,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="";"rbac.authorization.k8s.io",resources=serviceaccounts;clusterroles;clusterrolebindings,verbs=create;update;list;delete;escalate;bind
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -116,6 +118,10 @@ func (r *PeerPodConfigReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
+	if err := r.createCaaRBAC(ds); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	r.Log.Info("Reconciling PeerPodConfig")
 
 	return ctrl.Result{}, nil
@@ -123,6 +129,128 @@ func (r *PeerPodConfigReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 func MountProgagationRef(mode corev1.MountPropagationMode) *corev1.MountPropagationMode {
 	return &mode
+}
+
+func (r *PeerPodConfigReconciler) createCaaRBAC(ds *appsv1.DaemonSet) error {
+	clusterScopePrefix := "peerpods-caa-"
+	ns := ds.Namespace
+	sa := &corev1.ServiceAccount{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "ServiceAccount",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cloud-api-adaptor",
+			Namespace: ns,
+		},
+	}
+
+	r.Log.Info("Creating cloud-api-adaptor SeviceAccount for cloud-api-adapter DaemonSet", "sa.Namespace", sa.Namespace, "sa.Name", sa.Name)
+	if err := controllerutil.SetOwnerReference(ds, sa, r.Scheme); err != nil {
+		return fmt.Errorf("failed setting ControllerReference for cloud-api-adaptor ServiceAccount: %v", err)
+	}
+
+	if err := r.Client.Create(context.TODO(), sa); err != nil && !k8serrors.IsAlreadyExists(err) {
+		return fmt.Errorf("failed to create cloud-api-adaptor ServiceAccount: %v", err)
+	}
+
+	r.Log.Info("Creating cloud-api-adaptor SeviceAccount RBAC")
+
+	podViewerClusterRole := &rbacv1.ClusterRole{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "rbac.authorization.k8s.io/v1",
+			Kind:       "ClusterRole",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: clusterScopePrefix + "pod-viewer",
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{""},
+				Resources: []string{"pods", "pods/finalizers"},
+				Verbs:     []string{"get", "create", "patch", "update"},
+			},
+		},
+	}
+
+	if err := r.Client.Create(context.TODO(), podViewerClusterRole); err != nil && !k8serrors.IsAlreadyExists(err) {
+		return fmt.Errorf("failed to create %s ClusterRole: %v", podViewerClusterRole.Name, err)
+	}
+
+	podViewerClusterRoleBinding := &rbacv1.ClusterRoleBinding{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "rbac.authorization.k8s.io/v1",
+			Kind:       "ClusterRoleBinding",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: clusterScopePrefix + "pod-viewer",
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      "ServiceAccount",
+				Name:      "cloud-api-adaptor",
+				Namespace: ns,
+			},
+		},
+		RoleRef: rbacv1.RoleRef{
+			Kind:     "ClusterRole",
+			Name:     clusterScopePrefix + "pod-viewer",
+			APIGroup: "rbac.authorization.k8s.io",
+		},
+	}
+
+	if err := r.Client.Create(context.TODO(), podViewerClusterRoleBinding); err != nil && !k8serrors.IsAlreadyExists(err) {
+		return fmt.Errorf("failed to create %s ClsuterRoleBinding: %v", podViewerClusterRoleBinding.Name, err)
+	}
+
+	peerpodEditorClusterRole := &rbacv1.ClusterRole{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "rbac.authorization.k8s.io/v1",
+			Kind:       "ClusterRole",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: clusterScopePrefix + "peerpod-editor",
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{"confidentialcontainers.org"},
+				Resources: []string{"peerpods", "pods"},
+				Verbs:     []string{"create", "patch", "update"},
+			},
+		},
+	}
+
+	if err := r.Client.Create(context.TODO(), peerpodEditorClusterRole); err != nil && !k8serrors.IsAlreadyExists(err) {
+		return fmt.Errorf("failed to create %s ClusterRole: %v", peerpodEditorClusterRole.Name, err)
+	}
+
+	peerpodEditorClusterRoleBinding := &rbacv1.ClusterRoleBinding{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "rbac.authorization.k8s.io/v1",
+			Kind:       "ClusterRoleBinding",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: clusterScopePrefix + "peerpod-editor",
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      "ServiceAccount",
+				Name:      "cloud-api-adaptor",
+				Namespace: ns,
+			},
+		},
+		RoleRef: rbacv1.RoleRef{
+			Kind:     "ClusterRole",
+			Name:     clusterScopePrefix + "peerpod-editor",
+			APIGroup: "rbac.authorization.k8s.io",
+		},
+	}
+
+	if err := r.Client.Create(context.TODO(), peerpodEditorClusterRoleBinding); err != nil && !k8serrors.IsAlreadyExists(err) {
+		return fmt.Errorf("failed to create %s ClusterRoleBinding: %v", peerpodEditorClusterRoleBinding.Name, err)
+	}
+
+	return nil
 }
 
 func (r *PeerPodConfigReconciler) createCaaDaemonset() *appsv1.DaemonSet {
@@ -181,7 +309,7 @@ func (r *PeerPodConfigReconciler) createCaaDaemonset() *appsv1.DaemonSet {
 					Labels: dsLabelSelectors,
 				},
 				Spec: corev1.PodSpec{
-					ServiceAccountName: "default",
+					ServiceAccountName: "cloud-api-adaptor",
 					NodeSelector:       nodeSelector.MatchLabels,
 					HostNetwork:        true,
 					Containers: []corev1.Container{

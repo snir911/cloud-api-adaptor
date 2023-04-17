@@ -56,6 +56,20 @@ rules:
   - update
   - watch
 - apiGroups:
+  - ""
+  - rbac.authorization.k8s.io
+  resources:
+  - clusterrolebindings
+  - clusterroles
+  - serviceaccounts
+  verbs:
+  - bind
+  - create
+  - delete
+  - escalate
+  - list
+  - update
+- apiGroups:
   - confidentialcontainers.org
   resources:
   - peerpodconfigs
