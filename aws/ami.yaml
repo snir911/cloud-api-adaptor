@@ -22,7 +22,7 @@ spec:
       initContainers:
       - name: payload
         # change
-        image: quay.io/snir/podvm-binaries-rhel
+        image: quay.io/confidential-containers/podvm-binaries-centos-amd64
         volumeMounts:
         - name: shared-data
           mountPath: /payload
