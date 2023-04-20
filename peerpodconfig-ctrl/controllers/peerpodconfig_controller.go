@@ -54,9 +54,10 @@ const (
 // PeerPodConfigReconciler reconciles a PeerPodConfig object
 type PeerPodConfigReconciler struct {
 	client.Client
-	Scheme        *runtime.Scheme
-	Log           logr.Logger
-	peerPodConfig *ccv1alpha1.PeerPodConfig
+	Scheme            *runtime.Scheme
+	Log               logr.Logger
+	peerPodConfig     *ccv1alpha1.PeerPodConfig
+	clusterScopedDefs []client.Object
 }
 
 //Adding sideEffects=none as a workaround for https://github.com/kubernetes-sigs/kubebuilder/issues/1917
@@ -87,14 +88,42 @@ func (r *PeerPodConfigReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	r.peerPodConfig = &ccv1alpha1.PeerPodConfig{}
 	err := r.Client.Get(context.TODO(), req.NamespacedName, r.peerPodConfig)
 	if err != nil {
-		if k8serrors.IsNotFound(err) {
-			// Request object not found, could have been deleted after reconcile request.
-			// Owned objects are automatically garbage collected. For additional cleanup logic use finalizers.
-			// Return and don't requeue
-			return ctrl.Result{}, nil
+		// Ignore object not found, could have been deleted after reconcile request.
+		// don't requeue cleanup logic below.
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	myFinalizerName := "peerpods.confidentialcontainers.org/finalizer"
+
+	// examine DeletionTimestamp to determine if object is under deletion
+	if r.peerPodConfig.ObjectMeta.DeletionTimestamp.IsZero() {
+		// The object is not being deleted, so if it does not have our finalizer,
+		// then lets add the finalizer and update the object. This is equivalent
+		// registering our finalizer.
+		if !controllerutil.ContainsFinalizer(r.peerPodConfig, myFinalizerName) {
+			controllerutil.AddFinalizer(r.peerPodConfig, myFinalizerName)
+			if err := r.Update(ctx, r.peerPodConfig); err != nil {
+				return ctrl.Result{}, err
+			}
 		}
-		// Error reading the object - requeue the request.
-		return ctrl.Result{}, err
+	} else {
+		// The object is being deleted
+		if controllerutil.ContainsFinalizer(r.peerPodConfig, myFinalizerName) {
+			// our finalizer is present, so lets handle any external dependency
+			if err := r.deleteClusterScopedObjects(); err != nil {
+				// if fail to delete the external dependency here, return with error
+				// so that it can be retried
+				return ctrl.Result{}, err
+			}
+
+			// remove our finalizer from the list and update it.
+			controllerutil.RemoveFinalizer(r.peerPodConfig, myFinalizerName)
+			if err := r.Update(ctx, r.peerPodConfig); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
+		// Stop reconciliation as the item is being deleted
+		return ctrl.Result{}, nil
 	}
 
 	if err := r.advertiseExtendedResources(); err != nil {
@@ -131,6 +160,18 @@ func MountProgagationRef(mode corev1.MountPropagationMode) *corev1.MountPropagat
 	return &mode
 }
 
+func (r *PeerPodConfigReconciler) deleteClusterScopedObjects() error {
+	var ret error = nil
+	r.Log.Info("cleaning up cluster scoped objects")
+	for _, obj := range r.clusterScopedDefs {
+		r.Log.Info("Delete cluster scoped object", "name", obj.GetName(), "kind", obj.GetObjectKind())
+		if err := r.Client.Delete(context.TODO(), obj); err != nil && !k8serrors.IsNotFound(err) {
+			ret = fmt.Errorf("failed to delete %s %s: %v", obj.GetName(), obj.GetObjectKind(), err)
+		}
+	}
+	return ret
+}
+
 func (r *PeerPodConfigReconciler) createCaaRBAC(ds *appsv1.DaemonSet) error {
 	clusterScopePrefix := "peerpods-caa-"
 	ns := ds.Namespace
@@ -154,9 +195,9 @@ func (r *PeerPodConfigReconciler) createCaaRBAC(ds *appsv1.DaemonSet) error {
 		return fmt.Errorf("failed to create cloud-api-adaptor ServiceAccount: %v", err)
 	}
 
-	r.Log.Info("Creating cloud-api-adaptor SeviceAccount RBAC")
+	r.Log.Info("Creating cluster scoped RBAC objects for cloud-api-adaptor ServiceAccount")
 
-	podViewerClusterRole := &rbacv1.ClusterRole{
+	r.clusterScopedDefs = append(r.clusterScopedDefs, &rbacv1.ClusterRole{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "rbac.authorization.k8s.io/v1",
 			Kind:       "ClusterRole",
@@ -171,13 +212,9 @@ func (r *PeerPodConfigReconciler) createCaaRBAC(ds *appsv1.DaemonSet) error {
 				Verbs:     []string{"get", "create", "patch", "update"},
 			},
 		},
-	}
+	})
 
-	if err := r.Client.Create(context.TODO(), podViewerClusterRole); err != nil && !k8serrors.IsAlreadyExists(err) {
-		return fmt.Errorf("failed to create %s ClusterRole: %v", podViewerClusterRole.Name, err)
-	}
-
-	podViewerClusterRoleBinding := &rbacv1.ClusterRoleBinding{
+	r.clusterScopedDefs = append(r.clusterScopedDefs, &rbacv1.ClusterRoleBinding{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "rbac.authorization.k8s.io/v1",
 			Kind:       "ClusterRoleBinding",
@@ -197,13 +234,9 @@ func (r *PeerPodConfigReconciler) createCaaRBAC(ds *appsv1.DaemonSet) error {
 			Name:     clusterScopePrefix + "pod-viewer",
 			APIGroup: "rbac.authorization.k8s.io",
 		},
-	}
+	})
 
-	if err := r.Client.Create(context.TODO(), podViewerClusterRoleBinding); err != nil && !k8serrors.IsAlreadyExists(err) {
-		return fmt.Errorf("failed to create %s ClsuterRoleBinding: %v", podViewerClusterRoleBinding.Name, err)
-	}
-
-	peerpodEditorClusterRole := &rbacv1.ClusterRole{
+	r.clusterScopedDefs = append(r.clusterScopedDefs, &rbacv1.ClusterRole{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "rbac.authorization.k8s.io/v1",
 			Kind:       "ClusterRole",
@@ -218,13 +251,9 @@ func (r *PeerPodConfigReconciler) createCaaRBAC(ds *appsv1.DaemonSet) error {
 				Verbs:     []string{"create", "patch", "update"},
 			},
 		},
-	}
+	})
 
-	if err := r.Client.Create(context.TODO(), peerpodEditorClusterRole); err != nil && !k8serrors.IsAlreadyExists(err) {
-		return fmt.Errorf("failed to create %s ClusterRole: %v", peerpodEditorClusterRole.Name, err)
-	}
-
-	peerpodEditorClusterRoleBinding := &rbacv1.ClusterRoleBinding{
+	r.clusterScopedDefs = append(r.clusterScopedDefs, &rbacv1.ClusterRoleBinding{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "rbac.authorization.k8s.io/v1",
 			Kind:       "ClusterRoleBinding",
@@ -244,12 +273,15 @@ func (r *PeerPodConfigReconciler) createCaaRBAC(ds *appsv1.DaemonSet) error {
 			Name:     clusterScopePrefix + "peerpod-editor",
 			APIGroup: "rbac.authorization.k8s.io",
 		},
-	}
+	})
 
-	if err := r.Client.Create(context.TODO(), peerpodEditorClusterRoleBinding); err != nil && !k8serrors.IsAlreadyExists(err) {
-		return fmt.Errorf("failed to create %s ClusterRoleBinding: %v", peerpodEditorClusterRoleBinding.Name, err)
+	// TODO: delete these objects
+	for _, obj := range r.clusterScopedDefs {
+		r.Log.Info("Creating cluster scoped RBAC object", "name", obj.GetName(), "kind", obj.GetObjectKind())
+		if err := r.Client.Create(context.TODO(), obj); err != nil && !k8serrors.IsAlreadyExists(err) {
+			return fmt.Errorf("failed to create %s %s: %v", obj.GetName(), obj.GetObjectKind(), err)
+		}
 	}
-
 	return nil
 }
 
