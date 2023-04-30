@@ -18,7 +18,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"os"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -34,8 +33,6 @@ import (
 
 	confidentialcontainersorgv1alpha1 "github.com/confidential-containers/cloud-api-adaptor/peerpod-ctrl/api/v1alpha1"
 	"github.com/confidential-containers/cloud-api-adaptor/peerpod-ctrl/controllers"
-	"github.com/confidential-containers/cloud-api-adaptor/pkg/adaptor/cloud"
-	"github.com/confidential-containers/cloud-api-adaptor/pkg/adaptor/cloud/cloudmgr"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -49,21 +46,6 @@ func init() {
 
 	utilruntime.Must(confidentialcontainersorgv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
-}
-
-func setProvider() (cloud.Provider, error) {
-	cloudName := os.Getenv("CLOUD_PROVIDER")
-	if cloud := cloudmgr.Get(cloudName); cloud != nil {
-		cloud.LoadEnv() // we assume LoadEnv knows to load all nessecry configs
-		provider, err := cloud.NewProvider()
-		if err != nil {
-			return nil, err
-		}
-		setupLog.Info("provider was set sucssefully", "Cloud Provider", cloudName)
-		return provider, nil
-	}
-
-	return nil, fmt.Errorf("cloudmgr: %s cloud provider not supported", cloudName)
 }
 
 func main() {
@@ -107,7 +89,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	provider, err := setProvider()
+	provider, err := controllers.SetProvider()
 	if err != nil {
 		setupLog.Error(err, "unable to set provider")
 		os.Exit(1)
