@@ -1,14 +1,15 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: ami-create-job
+  name: aws-image-creation
   namespace: openshift-sandboxed-containers-operator
 spec:
   parallelism: 1    
   completions: 1    
+  backoffLimit: 1
   template:         
     metadata:
-      name: ami-create-job
+      name: aws-image-creation
 # needs hostnet for ocp
     spec:
       volumes:
@@ -22,7 +23,7 @@ spec:
       initContainers:
       - name: payload
         # change
-        image: quay.io/confidential-containers/podvm-binaries-centos-amd64
+        image: quay.io/snir/podvm-binaries:rhel
         volumeMounts:
         - name: shared-data
           mountPath: /payload
@@ -30,8 +31,8 @@ spec:
         args: ["-c", "cp /podvm-binaries.tar.gz /payload/ && cp /pause-bundle.tar.gz /payload/"]
 
       containers:
-      - name: ami-create-job
-        image: registry.access.redhat.com/ubi8/ubi:8.7
+      - name: aws-image-creation
+        image: registry.access.redhat.com/ubi9/ubi:9.1
         volumeMounts:
         - name: shared-data
           mountPath: /payload
@@ -40,8 +41,8 @@ spec:
             value: rhel
           - name: INSTANCE_TYPE
             value: "t2.small" # comment
-#          - name: IMAGE_NAME
-#            value: "peer-pod-ami"
+          - name: IMAGE_NAME
+            value: "peer-pod-ami"
 #          - name: AWS_REGION
 #            value: ""
 #          - name: VPC_ID
@@ -63,7 +64,9 @@ spec:
           yum -y install packer
           PATH="/usr/bin:${PATH}"
           packer plugins install github.com/hashicorp/amazon
-          git clone https://github.com/confidential-containers/cloud-api-adaptor.git
+          #git clone https://github.com/confidential-containers/cloud-api-adaptor.git
+          #cd cloud-api-adaptor && git checkout 040e11e21db6088e3e727dba622cc04d45222a9b && cd -
+          git clone https://github.com/snir911/cloud-api-adaptor.git -b img_jobs
           tar xvf /payload/pause-bundle.tar.gz -C cloud-api-adaptor/podvm/files
           tar xvf /payload/podvm-binaries.tar.gz -C cloud-api-adaptor/podvm/files
           export MAC=$(curl -m 30 -s --show-error http://169.254.169.254/latest/meta-data/mac)
