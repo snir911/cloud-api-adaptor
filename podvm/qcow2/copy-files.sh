@@ -23,4 +23,6 @@ fi
 sudo mkdir -p /usr/local/bin
 sudo cp -a /tmp/files/usr/* /usr/
 
-sudo cp -a /tmp/files/pause_bundle /
+if [ -e /tmp/files/pause_bundle ]; then
+	sudo cp -a /tmp/files/pause_bundle /
+fi
