@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"sync"
 
@@ -16,6 +17,8 @@ import (
 
 	pb "github.com/kata-containers/kata-containers/src/runtime/virtcontainers/pkg/agent/protocols/grpc"
 )
+
+var logger = log.New(log.Writer(), "[AGENTPRTO] ", log.LstdFlags|log.Lmsgprefix)
 
 type Redirector interface {
 	pb.AgentServiceService
@@ -105,11 +108,15 @@ func (s *redirector) StartContainer(ctx context.Context, req *pb.StartContainerR
 }
 
 func (s *redirector) RemoveContainer(ctx context.Context, req *pb.RemoveContainerRequest) (res *types.Empty, err error) {
-
+	logger.Printf("Connect")
 	if err := s.Connect(ctx); err != nil {
+		logger.Printf("Connect had error %v", err)
 		return nil, err
 	}
-	return s.agentClient.RemoveContainer(ctx, req)
+	logger.Printf("Connect passed")
+	r, e := s.agentClient.RemoveContainer(ctx, req)
+	logger.Printf("called agent's remove container %v", e)
+	return r, e
 }
 
 func (s *redirector) ExecProcess(ctx context.Context, req *pb.ExecProcessRequest) (res *types.Empty, err error) {
