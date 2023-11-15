@@ -111,10 +111,6 @@ func NewProvider(config *Config) (cloud.Provider, error) {
 		logger.Printf("RootDeviceName and RootVolumeSize of the image %s is %s, %d", config.ImageId, config.RootDeviceName, config.RootVolumeSize)
 	}
 
-	if err = provider.updateInstanceTypeSpecList(); err != nil {
-		return nil, err
-	}
-
 	return provider, nil
 }
 
@@ -166,6 +162,10 @@ func (p *awsProvider) CreateInstance(ctx context.Context, podName, sandboxID str
 
 		//Convert userData to base64
 		b64EncData = base64.StdEncoding.EncodeToString([]byte(userData))
+	}
+
+	if err = p.updateInstanceTypeSpecList(); err != nil {
+		return nil, err
 	}
 
 	instanceType, err := p.selectInstanceType(ctx, spec)
