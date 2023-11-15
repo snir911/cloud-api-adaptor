@@ -53,10 +53,6 @@ func NewProvider(config *Config) (cloud.Provider, error) {
 		serviceConfig: config,
 	}
 
-	if err = provider.updateInstanceSizeSpecList(); err != nil {
-		return nil, err
-	}
-
 	return provider, nil
 }
 
@@ -189,6 +185,10 @@ func (p *azureProvider) CreateInstance(ctx context.Context, podName, sandboxID s
 	// If the b64EncData is greater than 64KB then return an error
 	if len(b64EncData) > 64*1024 {
 		return nil, fmt.Errorf("base64 encoded userData is greater than 64KB")
+	}
+
+	if err = p.updateInstanceSizeSpecList(); err != nil {
+		return nil, err
 	}
 
 	instanceSize, err := p.selectInstanceType(ctx, spec)
