@@ -13,6 +13,7 @@ import (
 
 func DefaultToEnv(field *string, env, fallback string) {
 
+	fmt.Printf("DefaultToEnv (%s, %s, %s)", *field, env, fallback)
 	if *field != "" {
 		return
 	}
