@@ -61,12 +61,13 @@ func (r *PeerPodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// cloud provider was not set, try to fetch cloud provider and its configs dynamically from ConfigMap or Secret
 	// make sure the matching RBAC rules are set
 	if r.Provider == nil {
-		logger.Info("trying to fetch cloud provider configs for peerpod-ctrl")
+		logger.Info("trying to fetch cloud provider configs for peerpod-ctrl HACKED!!! ####")
 		if err := r.cloudConfigsGetter(); err != nil {
 			// don't requeue, if cloud configs are missing it will requeue later
 			logger.Info("cannot fetch cloud configs at the moment", "error", err)
 		}
 
+		logger.Info("trying to fetch cloud provider configs for peerpod-ctrl HACKED AFTER!!! ####")
 		var pErr error
 		r.Provider, pErr = SetProvider()
 		if pErr != nil {
@@ -161,13 +162,18 @@ func (r *PeerPodReconciler) cloudConfigsGetter() error {
 }
 
 func SetProvider() (cloud.Provider, error) {
+	fmt.Printf("#### SetProvider")
 	cloudName := os.Getenv("CLOUD_PROVIDER")
+	fmt.Printf("#### SetProvider cloud: %s", cloudName)
 	if cloud := cloudmgr.Get(cloudName); cloud != nil {
+	        fmt.Printf("#### SetProvider inner 1 ")
 		cloud.LoadEnv() // we assume LoadEnv knows to load all necessary configs
+	        fmt.Printf("#### SetProvider inner 2 ")
 		provider, err := cloud.NewProvider()
 		if err != nil {
 			return nil, err
 		}
+	        fmt.Printf("#### SetProvider inner 3 ")
 		return provider, nil
 	}
 
