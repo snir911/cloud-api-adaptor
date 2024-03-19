@@ -36,6 +36,9 @@ source "azure-arm" "rhel" {
     gallery_name   = "${var.az_gallery_name}"
     image_name     = "${var.az_gallery_image_name}"
     image_version  = "${var.az_gallery_image_version}"
+    target_region { # can have multiple target_region blocks
+      name = "${var.az_gallery_target_region}"
+    }
   }
 }
 

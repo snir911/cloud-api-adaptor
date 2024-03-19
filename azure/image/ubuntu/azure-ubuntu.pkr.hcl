@@ -30,7 +30,16 @@ source "azure-arm" "ubuntu" {
     image_name           = "${var.az_gallery_image_name}"
     image_version        = "${var.az_gallery_image_version}"
     storage_account_type = "Standard_LRS"
-    replication_regions  = ["eastus2", "westeurope"]
+    target_region { # can have multiple target_region blocks
+      name = "${var.az_gallery_target_region}" # TODO: make sure duplication doesn't break
+    }
+    target_region {
+      name = "eastus2"
+    }
+    target_region {
+      name = "westeurope"
+    }
+
   }
 }
 

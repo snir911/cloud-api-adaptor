@@ -119,6 +119,12 @@ variable "az_gallery_image_version" {
   default = ""
 }
 
+# shared gallery target region
+variable "az_gallery_target_region" {
+  type    = string
+  default = env("AZURE_REGION")
+}
+
 variable "config_script_src" {
   type    = string
   default = ""

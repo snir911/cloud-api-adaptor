@@ -26,6 +26,13 @@ variable "az_gallery_image_version" {
   default = "0.0.1"
 }
 
+// shared gallery target region
+variable "az_gallery_target_region" {
+  type    = string
+  default = env("AZURE_REGION")
+}
+
+
 // instance type
 variable "vm_size" {
   type    = string
