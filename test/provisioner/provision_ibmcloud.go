@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"crypto/sha256"
+
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 
 	"github.com/confidential-containers/cloud-api-adaptor/test/utils"
@@ -393,6 +394,17 @@ func deleteSubnet() error {
 	if err != nil {
 		return err
 	}
+	log.Infof("Waiting for Subnet  %s to be removed...", IBMCloudProps.SubnetName)
+	for i := 0; i <= waitMinutes; i++ {
+		foundsb, _ := findSubnet(IBMCloudProps.SubnetName)
+		if foundsb == nil {
+			log.Infof("Subnet %s is removed  ...", IBMCloudProps.SubnetName)
+			break
+		}
+		log.Infof("Waiting for %s to be removed.", *foundsb.Name)
+		log.Infof("Waited %d minutes...", i)
+		time.Sleep(60 * time.Second)
+	}
 	log.Infof("Deleted subnet with ID %s.", IBMCloudProps.SubnetID)
 	return nil
 }
@@ -468,8 +480,22 @@ func deleteSshKey() error {
 	if err != nil {
 		return err
 	}
-	log.Infof("SSH Key %s with ID %s is deleted.", IBMCloudProps.SshKeyName, IBMCloudProps.SshKeyID)
-	return nil
+	waitMinutes := 5
+	log.Infof("Waiting for SSH key  %s to be removed...", IBMCloudProps.SshKeyID)
+	for i := 0; i <= waitMinutes; i++ {
+		foundSsh, err := findSshKey(IBMCloudProps.SshKeyID)
+		if foundSsh == nil {
+			log.Infof("SSH Key %s with ID %s is deleted.", IBMCloudProps.SshKeyName, IBMCloudProps.SshKeyID)
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		log.Infof("Waiting for SSH %s to be removed.", *foundSsh.Name)
+		log.Infof("Waited %d minutes...", i)
+		time.Sleep(60 * time.Second)
+	}
+	return errors.New("Failed to Delete SSH Key")
 }
 
 func isClusterReady(clrName string) (bool, error) {
@@ -792,6 +818,10 @@ func getSha256sum(imagePath string) (string, error) {
 func (p *IBMCloudProvisioner) UploadPodvm(imagePath string, ctx context.Context, cfg *envconf.Config) error {
 	log.Trace("UploadPodvm()")
 
+	if len(IBMCloudProps.ApiKey) <= 0 {
+		return errors.New("APIKEY must be set to upload podvm image")
+	}
+
 	filePath, err := filepath.Abs(imagePath)
 	if err != nil {
 		return err
@@ -916,6 +946,21 @@ func (p *IBMCloudProvisioner) UploadPodvm(imagePath string, ctx context.Context,
 	return nil
 }
 
+func getProfileList() string {
+	var profileList string
+	if strings.EqualFold("s390x", IBMCloudProps.PodvmImageArch) {
+		if strings.Contains(IBMCloudProps.InstanceProfile, "e-") {
+			profileList = "bz2e-2x8,cz2e-2x4,mz2e-2x16"
+		} else {
+			profileList = "bz2-2x8,cz2-2x4,mz2-2x16"
+		}
+	} else {
+		profileList = "bx2-2x8,cx2-2x4,mx2-2x16"
+
+	}
+	return profileList
+}
+
 func (p *IBMCloudProvisioner) GetProperties(ctx context.Context, cfg *envconf.Config) map[string]string {
 	return map[string]string{
 		"CLOUD_PROVIDER":                       IBMCloudProps.IBMCloudProvider,
@@ -930,7 +975,9 @@ func (p *IBMCloudProvisioner) GetProperties(ctx context.Context, cfg *envconf.Co
 		"IBMCLOUD_VPC_ID":                      IBMCloudProps.VpcID,
 		"CRI_RUNTIME_ENDPOINT":                 "/run/cri-runtime/containerd.sock",
 		"IBMCLOUD_API_KEY":                     IBMCloudProps.ApiKey,
+		"IBMCLOUD_IAM_PROFILE_ID":              IBMCloudProps.IamProfileID,
 		"IBMCLOUD_IAM_ENDPOINT":                IBMCloudProps.IamServiceURL,
+		"IBMCLOUD_PODVM_INSTANCE_PROFILE_LIST": getProfileList(),
 	}
 }
 

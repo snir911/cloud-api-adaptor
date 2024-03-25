@@ -1,6 +1,8 @@
 # (C) Copyright Confidential Containers Contributors
 # SPDX-License-Identifier: Apache-2.0
 
+include Makefile.defaults
+
 .PHONY: all build check fmt vet clean image deploy delete
 
 SHELL = bash -o pipefail
@@ -12,12 +14,14 @@ RELEASE_BUILD ?= false
 CLOUD_PROVIDER ?=
 GOOPTIONS   ?= GOOS=linux GOARCH=$(ARCH) CGO_ENABLED=0
 GOFLAGS     ?=
-BINARIES    := cloud-api-adaptor agent-protocol-forwarder
+BINARIES    := cloud-api-adaptor agent-protocol-forwarder process-user-data
 SOURCEDIRS  := ./cmd ./pkg
 PACKAGES    := $(shell go list $(addsuffix /...,$(SOURCEDIRS)))
 SOURCES     := $(shell find $(SOURCEDIRS) -name '*.go' -print)
 # End-to-end tests overall run timeout.
-TEST_E2E_TIMEOUT ?= 20m
+TEST_E2E_TIMEOUT ?= 60m
+
+RESOURCE_CTRL ?= false
 
 # BUILTIN_CLOUD_PROVIDERS is used for binary build -- what providers are built in the binaries.
 ifeq ($(RELEASE_BUILD),true)
@@ -71,7 +75,7 @@ cloud-api-adaptor: GOOPTIONS := $(subst CGO_ENABLED=0,CGO_ENABLED=1,$(GOOPTIONS)
 endif
 
 $(BINARIES): .git-commit $(SOURCES)
-	$(GOOPTIONS) go build $(GOFLAGS) -o "$@" "cmd/$@/main.go"
+	$(GOOPTIONS) go build $(GOFLAGS) -o "$@" ./cmd/$@
 
 ##@ Development
 
@@ -93,8 +97,9 @@ else
 	$(error CLOUD_PROVIDER is not set)
 endif
 
+ ## Run formatters and linters against the code.
 .PHONY: check
-check: fmt vet golangci-lint shellcheck tidy-check govulncheck ## Run formatters and linters against the code.
+check: fmt vet golangci-lint shellcheck tidy-check govulncheck packer-check terraform-check
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -124,6 +129,22 @@ tidy-check:
 govulncheck:
 	./hack/govulncheck.sh -v
 
+.PHONY: packer-format
+packer-format:
+	./hack/packer-check.sh
+
+.PHONY: packer-check
+packer-check:
+	./hack/packer-check.sh --check
+
+.PHONY: terraform-format
+terraform-format:
+	./hack/terraform-check.sh
+
+.PHONY: terraform-check
+terraform-check:
+	./hack/terraform-check.sh --check
+
 .PHONY: clean
 clean: ## Remove binaries.
 	rm -fr $(BINARIES) \
@@ -133,24 +154,79 @@ clean: ## Remove binaries.
 
 .PHONY: image
 image: .git-commit ## Build and push docker image to $registry
-	COMMIT=$(COMMIT) VERSION=$(VERSION) hack/build.sh
+	COMMIT=$(COMMIT) VERSION=$(VERSION) YQ_VERSION=$(YQ_VERSION) YQ_CHECKSUM=$(YQ_CHECKSUM) hack/build.sh -i
+
+.PHONY: image-with-arch
+image-with-arch: .git-commit ## Build the per arch image
+	COMMIT=$(COMMIT) VERSION=$(VERSION) YQ_VERSION=$(YQ_VERSION) YQ_CHECKSUM=$(YQ_CHECKSUM) hack/build.sh -a
 
 ##@ Deployment
 
 .PHONY: deploy
 deploy: ## Deploy cloud-api-adaptor using the operator, according to install/overlays/$(CLOUD_PROVIDER)/kustomization.yaml file.
 ifneq ($(CLOUD_PROVIDER),)
-	kubectl apply -k "github.com/confidential-containers/operator/config/default?ref=v0.7.0"
-	kubectl apply -k "github.com/confidential-containers/operator/config/samples/ccruntime/peer-pods?ref=v0.7.0"
+	kubectl apply -k "github.com/confidential-containers/operator/config/default?ref=v0.8.0"
+	kubectl apply -k "github.com/confidential-containers/operator/config/samples/ccruntime/peer-pods?ref=v0.8.0"
 	kubectl apply -k install/overlays/$(CLOUD_PROVIDER)
 else
 	$(error CLOUD_PROVIDER is not set)
 endif
+ifeq ($(RESOURCE_CTRL),true)
+	$(MAKE) -C ./peerpod-ctrl deploy
+endif
 
 .PHONY: delete
 delete: ## Delete cloud-api-adaptor using the operator, according to install/overlays/$(CLOUD_PROVIDER)/kustomization.yaml file.
+ifeq ($(RESOURCE_CTRL),true)
+	$(MAKE) -C ./peerpod-ctrl undeploy
+endif
 ifneq ($(CLOUD_PROVIDER),)
 	kubectl delete -k install/overlays/$(CLOUD_PROVIDER)
 else
 	$(error CLOUD_PROVIDER is not set)
 endif
+
+### PODVM IMAGE BUILDING ###
+
+REGISTRY ?= quay.io/confidential-containers
+
+PODVM_DISTRO ?= ubuntu
+
+PODVM_BUILDER_IMAGE ?= $(REGISTRY)/podvm-builder-$(PODVM_DISTRO):$(VERSIONS_HASH)
+PODVM_BINARIES_IMAGE ?= $(REGISTRY)/podvm-binaries-$(PODVM_DISTRO)-$(ARCH):$(VERSIONS_HASH)
+PODVM_IMAGE ?= $(REGISTRY)/podvm-$(or $(CLOUD_PROVIDER),generic)-$(PODVM_DISTRO)-$(ARCH):$(VERSIONS_HASH)
+
+PUSH ?= false
+# If not pushing `--load` into the local docker cache
+DOCKER_OPTS := $(if $(filter $(PUSH),true),--push,--load) $(EXTRA_DOCKER_OPTS)
+
+DOCKERFILE_SUFFIX := $(if $(filter $(PODVM_DISTRO),ubuntu),,.$(PODVM_DISTRO))
+BUILDER_DOCKERFILE := Dockerfile.podvm_builder$(DOCKERFILE_SUFFIX)
+BINARIES_DOCKERFILE := Dockerfile.podvm_binaries$(DOCKERFILE_SUFFIX)
+PODVM_DOCKERFILE := Dockerfile.podvm$(DOCKERFILE_SUFFIX)
+
+podvm-builder:
+	docker buildx build -t $(PODVM_BUILDER_IMAGE) -f podvm/$(BUILDER_DOCKERFILE) \
+	--build-arg GO_VERSION=$(GO_VERSION) \
+	--build-arg PROTOC_VERSION=$(PROTOC_VERSION) \
+	--build-arg RUST_VERSION=$(RUST_VERSION) \
+	--build-arg YQ_VERSION=$(YQ_VERSION) \
+	--build-arg YQ_CHECKSUM=$(YQ_CHECKSUM) \
+	$(DOCKER_OPTS) .
+
+podvm-binaries:
+	docker buildx build -t $(PODVM_BINARIES_IMAGE) -f podvm/$(BINARIES_DOCKERFILE) \
+	--build-arg BUILDER_IMG=$(PODVM_BUILDER_IMAGE) \
+	--build-arg PODVM_DISTRO=$(PODVM_DISTRO) \
+	--build-arg ARCH=$(ARCH) \
+	--build-arg AA_KBC=$(AA_KBC) \
+	$(DOCKER_OPTS) .
+
+podvm-image:
+	docker buildx build -t $(PODVM_IMAGE) -f podvm/$(PODVM_DOCKERFILE) \
+	--build-arg BUILDER_IMG=$(PODVM_BUILDER_IMAGE) \
+	--build-arg BINARIES_IMG=$(PODVM_BINARIES_IMAGE) \
+	--build-arg PODVM_DISTRO=$(PODVM_DISTRO) \
+	--build-arg ARCH=$(ARCH) \
+	--build-arg CLOUD_PROVIDER=$(or $(CLOUD_PROVIDER),generic) \
+	$(DOCKER_OPTS) .

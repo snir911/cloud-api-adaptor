@@ -30,6 +30,11 @@ func (_ *Manager) ParseCmd(flags *flag.FlagSet) {
 	flags.BoolVar(&azurecfg.DisableCVM, "disable-cvm", false, "Use non-CVMs for peer pods")
 	// Add a List parameter to indicate differet type of instance sizes to be used for the Pod VMs
 	flags.Var(&azurecfg.InstanceSizes, "instance-sizes", "Instance sizes to be used for the Pod VMs, comma separated")
+	// Add a key value list parameter to indicate custom tags to be used for the Pod VMs
+	flags.Var(&azurecfg.Tags, "tags", "Custom tags (key=value pairs) to be used for the Pod VMs, comma separated")
+	// Add a flag to disable cloud config and use userdata via metadata service
+	flags.BoolVar(&azurecfg.DisableCloudConfig, "disable-cloud-config", false, "Disable cloud config and use userdata via metadata service")
+	flags.BoolVar(&azurecfg.EnableSecureBoot, "enable-secure-boot", false, "Enable secure boot for the VMs")
 }
 
 func (_ *Manager) LoadEnv() {

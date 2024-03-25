@@ -8,6 +8,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 type podOption func(*corev1.Pod)
@@ -15,6 +16,23 @@ type podOption func(*corev1.Pod)
 func withRestartPolicy(restartPolicy corev1.RestartPolicy) podOption {
 	return func(p *corev1.Pod) {
 		p.Spec.RestartPolicy = restartPolicy
+	}
+}
+
+// Optional method to add ContainerPort and ReadinessProbe to listen Port 80
+func withContainerPort(port int32) podOption {
+	return func(p *corev1.Pod) {
+		p.Spec.Containers[0].Ports = []corev1.ContainerPort{{ContainerPort: port}}
+		p.Spec.Containers[0].ReadinessProbe = &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				HTTPGet: &corev1.HTTPGetAction{
+					Path: "/",
+					Port: intstr.FromInt(int(port)),
+				},
+			},
+			InitialDelaySeconds: 10,
+			PeriodSeconds:       5,
+		}
 	}
 }
 
@@ -27,6 +45,16 @@ func withCommand(command []string) podOption {
 func withEnvironmentalVariables(envVar []corev1.EnvVar) podOption {
 	return func(p *corev1.Pod) {
 		p.Spec.Containers[0].Env = envVar
+	}
+}
+
+func withImagePullSecrets(secretName string) podOption {
+	return func(p *corev1.Pod) {
+		p.Spec.ImagePullSecrets = []corev1.LocalObjectReference{
+			{
+				Name: secretName,
+			},
+		}
 	}
 }
 
@@ -52,10 +80,20 @@ func withPVCBinding(mountPath string, pvcName string) podOption {
 	}
 }
 
+func withAnnotations(data map[string]string) podOption {
+	return func(p *corev1.Pod) {
+		p.ObjectMeta.Annotations = data
+	}
+}
+
 func newPod(namespace string, podName string, containerName string, imageName string, options ...podOption) *corev1.Pod {
 	runtimeClassName := "kata-remote"
+	// Comment out adding runtime-handler until nydus-snapshotter is stable
+	// annotationData := map[string]string{
+	// 	"io.containerd.cri.runtime-handler": runtimeClassName,
+	// }
 	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: podName, Namespace: namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: podName, Namespace: namespace /*, Annotations: annotationData*/},
 		Spec: corev1.PodSpec{
 			Containers:       []corev1.Container{{Name: containerName, Image: imageName, ImagePullPolicy: corev1.PullAlways}},
 			RuntimeClassName: &runtimeClassName,
@@ -81,14 +119,6 @@ func newBusyboxPod(namespace string) *corev1.Pod {
 	return newPod(namespace, "busybox-pod", "busybox", "quay.io/prometheus/busybox:latest", withCommand([]string{"/bin/sh", "-c", "sleep 3600"}))
 }
 
-func newNginxPodWithConfigMap(namespace string, configMapName string) *corev1.Pod {
-	return newPod(namespace, "nginx-configmap-pod", "nginx-configmap", "nginx", withRestartPolicy(corev1.RestartPolicyNever), withConfigMapBinding("/etc/config", configMapName))
-}
-
-func newNginxPodWithSecret(namespace string, secretName string) *corev1.Pod {
-	return newPod(namespace, "nginx-secret-pod", "nginx-secret", "nginx", withRestartPolicy(corev1.RestartPolicyNever), withSecretBinding("/etc/secret", secretName))
-}
-
 // newConfigMap returns a new config map object.
 func newConfigMap(namespace string, name string, configMapData map[string]string) *corev1.ConfigMap {
 	return &corev1.ConfigMap{
@@ -98,22 +128,28 @@ func newConfigMap(namespace string, name string, configMapData map[string]string
 }
 
 // newSecret returns a new secret object.
-func newSecret(namespace string, name string, data map[string][]byte) *corev1.Secret {
+func newSecret(namespace string, name string, data map[string][]byte, secretType corev1.SecretType) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 		Data:       data,
+		Type:       secretType,
 	}
 }
 
 // newJob returns a new job
 func newJob(namespace string, name string) *batchv1.Job {
 	runtimeClassName := "kata-remote"
+	// Comment out adding runtime-handler until nydus-snapshotter is stable
+	// annotationData := map[string]string{
+	// 	"io.containerd.cri.runtime-handler": runtimeClassName,
+	// }
 	BackoffLimit := int32(8)
 	TerminateGracePeriod := int64(0)
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
+			// Annotations: annotationData,
 		},
 		Spec: batchv1.JobSpec{
 			Template: corev1.PodTemplateSpec{
@@ -157,5 +193,12 @@ func newPVC(namespace, name, storageClassName, diskSize string, accessModel core
 
 // CloudAssert defines assertions to perform on the cloud provider.
 type CloudAssert interface {
-	HasPodVM(t *testing.T, id string) // Assert there is a PodVM with `id`.
+	HasPodVM(t *testing.T, id string)                             // Assert there is a PodVM with `id`.
+	getInstanceType(t *testing.T, podName string) (string, error) // Get Instance Type of PodVM
+}
+
+// RollingUpdateAssert defines assertions for rolling update test
+type RollingUpdateAssert interface {
+	CachePodVmIDs(t *testing.T, deploymentName string) // Cache Pod VM IDs before rolling update
+	VerifyOldVmDeleted(t *testing.T)                   // Verify old Pod VMs have been deleted
 }

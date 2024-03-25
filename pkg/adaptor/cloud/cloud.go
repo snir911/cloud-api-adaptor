@@ -70,7 +70,8 @@ func (s *cloudService) removeSandbox(id sandboxID) error {
 	return nil
 }
 
-func NewService(provider Provider, proxyFactory proxy.Factory, workerNode podnetwork.WorkerNode, podsDir, daemonPort string) Service {
+func NewService(provider Provider, proxyFactory proxy.Factory, workerNode podnetwork.WorkerNode,
+	podsDir, daemonPort, aaKBCParams string) Service {
 	var err error
 
 	s := &cloudService{
@@ -80,6 +81,7 @@ func NewService(provider Provider, proxyFactory proxy.Factory, workerNode podnet
 		podsDir:      podsDir,
 		daemonPort:   daemonPort,
 		workerNode:   workerNode,
+		aaKBCParams:  aaKBCParams,
 	}
 	s.cond = sync.NewCond(&s.mutex)
 	s.ppService, err = k8sops.NewPeerPodService()
@@ -92,6 +94,10 @@ func NewService(provider Provider, proxyFactory proxy.Factory, workerNode podnet
 
 func (s *cloudService) Teardown() error {
 	return s.provider.Teardown()
+}
+
+func (s *cloudService) ConfigVerifier() error {
+	return s.provider.ConfigVerifier()
 }
 
 func (s *cloudService) setInstance(sid sandboxID, instanceID, instanceName string) error {
@@ -215,6 +221,17 @@ func (s *cloudService) CreateVM(ctx context.Context, req *pb.CreateVMRequest) (r
 		daemonConfig.TLSServerKey = string(keyPEM)
 	}
 
+	if s.aaKBCParams != "" {
+		daemonConfig.AAKBCParams = s.aaKBCParams
+	}
+
+	// Check if auth json file is present
+	if authJSON, err := os.ReadFile(cloudinit.DefaultAuthfileSrcPath); err == nil {
+		daemonConfig.AuthJson = string(authJSON)
+	} else {
+		logger.Printf("Credentials file is not in a valid Json format, ignored")
+	}
+
 	daemonJSON, err := json.MarshalIndent(daemonConfig, "", "    ")
 	if err != nil {
 		return nil, fmt.Errorf("generating JSON data: %w", err)
@@ -234,20 +251,6 @@ func (s *cloudService) CreateVM(ctx context.Context, req *pb.CreateVMRequest) (r
 				Content: string(daemonJSON),
 			},
 		},
-	}
-
-	if authJSON, err := os.ReadFile(cloudinit.DefaultAuthfileSrcPath); err == nil {
-		if json.Valid(authJSON) && (len(authJSON) < cloudinit.DefaultAuthfileLimit) {
-			cloudConfig.WriteFiles = append(cloudConfig.WriteFiles,
-				cloudinit.WriteFile{
-					Path:    cloudinit.DefaultAuthfileDstPath,
-					Content: cloudinit.AuthJSONToResourcesJSON(string(authJSON)),
-				})
-		} else if len(authJSON) >= cloudinit.DefaultAuthfileLimit {
-			logger.Printf("Credentials file size (%d) is too large to use as userdata, ignored", len(authJSON))
-		} else {
-			logger.Printf("Credentials file is not in a valid Json format, ignored")
-		}
 	}
 
 	sandbox := &sandbox{

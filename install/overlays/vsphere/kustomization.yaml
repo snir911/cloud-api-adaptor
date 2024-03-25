@@ -7,7 +7,7 @@ bases:
 images:
 - name: cloud-api-adaptor
   newName: quay.io/confidential-containers/cloud-api-adaptor # change image if needed
-  newTag: 6d7d2a3fe8243809b3c3a710792c8498292e2fc3
+  newTag: d4496d008b65c979a4d24767979a77ed1ba21e76
 
 generatorOptions:
   disableNameSuffixHash: true
@@ -17,6 +17,7 @@ configMapGenerator:
   namespace: confidential-containers-system
   literals:
   - CLOUD_PROVIDER="vsphere"
+  - CLOUD_CONFIG_VERIFY="false" # It's better set as true to enable could config verify in production env
   - GOVC_URL=""        # Setting the vCenter URL is required.
   - GOVC_DATACENTER="" # Setting the vCenter datacenter is required.
 

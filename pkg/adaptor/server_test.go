@@ -151,10 +151,11 @@ func newServer(t *testing.T, socketPath, podsDir string) Server {
 	port := startAgentServer(t)
 	provider := &mockProvider{}
 	serverConfig := &ServerConfig{
-		SocketPath:    socketPath,
-		PodsDir:       podsDir,
-		ForwarderPort: port,
-		ProxyTimeout:  5 * time.Second,
+		SocketPath:              socketPath,
+		PodsDir:                 podsDir,
+		ForwarderPort:           port,
+		ProxyTimeout:            5 * time.Second,
+		EnableCloudConfigVerify: false,
 	}
 	return NewServer(provider, serverConfig, &mockWorkerNode{})
 }
@@ -224,5 +225,9 @@ func (p *mockProvider) DeleteInstance(ctx context.Context, instanceID string) er
 }
 
 func (p *mockProvider) Teardown() error {
+	return nil
+}
+
+func (p *mockProvider) ConfigVerifier() error {
 	return nil
 }

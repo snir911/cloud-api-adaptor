@@ -19,6 +19,7 @@ import (
 	"github.com/confidential-containers/cloud-api-adaptor/pkg/util/tlsutil"
 
 	"github.com/confidential-containers/cloud-api-adaptor/pkg/podnetwork"
+	"github.com/confidential-containers/cloud-api-adaptor/pkg/probe"
 )
 
 const programName = "cloud-api-adaptor"
@@ -110,6 +111,8 @@ func (cfg *daemonConfig) Setup() (cmd.Starter, error) {
 		flags.StringVar(&cfg.networkConfig.HostInterface, "host-interface", "", "Host Interface")
 		flags.IntVar(&cfg.networkConfig.VXLANPort, "vxlan-port", vxlan.DefaultVXLANPort, "VXLAN UDP port number (VXLAN tunnel mode only")
 		flags.IntVar(&cfg.networkConfig.VXLANMinID, "vxlan-min-id", vxlan.DefaultVXLANMinID, "Minimum VXLAN ID (VXLAN tunnel mode only")
+		flags.StringVar(&cfg.serverConfig.AAKBCParams, "aa-kbc-params", "", "attestation-agent KBC parameters")
+		flags.BoolVar(&cfg.serverConfig.EnableCloudConfigVerify, "cloud-config-verify", false, "Enable cloud config verify - should use it for production")
 
 		cloud.ParseCmd(flags)
 	})
@@ -136,10 +139,9 @@ func (cfg *daemonConfig) Setup() (cmd.Starter, error) {
 	return cmd.NewStarter(server), nil
 }
 
-var config cmd.Config = &daemonConfig{}
+var config = &daemonConfig{}
 
 func main() {
-
 	starter, err := config.Setup()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", os.Args[0], err)
@@ -148,6 +150,8 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	go probe.Start(config.serverConfig.SocketPath)
 
 	if err := starter.Start(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", os.Args[0], err)

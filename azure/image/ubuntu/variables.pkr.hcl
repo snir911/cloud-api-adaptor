@@ -37,23 +37,31 @@ variable "resource_group" {
 }
 
 variable "client_id" {
-  type    = string
-  default = ""
+  type = string
+  # This can be empty when using local authentication enabled by setting `use_azure_cli_auth` to true.
+  default   = ""
+  sensitive = true
 }
 
 variable "client_secret" {
-  type    = string
-  default = ""
+  type = string
+  # This can be empty when using local authentication enabled by setting `use_azure_cli_auth` to true.
+  default   = ""
+  sensitive = true
 }
 
 variable "subscription_id" {
-  type    = string
-  default = ""
+  type = string
+  # This can be empty when using local authentication enabled by setting `use_azure_cli_auth` to true.
+  default   = ""
+  sensitive = true
 }
 
 variable "tenant_id" {
-  type    = string
-  default = ""
+  type = string
+  # This can be empty when using local authentication enabled by setting `use_azure_cli_auth` to true.
+  default   = ""
+  sensitive = true
 }
 
 variable "use_azure_cli_auth" {
@@ -106,3 +114,22 @@ variable "plan_publisher" {
   default = ""
 }
 
+variable "disable_cloud_config" {
+  type    = string
+  default = env("DISABLE_CLOUD_CONFIG")
+}
+
+variable "config_script_src" {
+  type    = string
+  default = ""
+}
+
+variable "addons_script_src" {
+  type    = string
+  default = ""
+}
+
+variable "enable_nvidia_gpu" {
+  type    = string
+  default = env("ENABLE_NVIDIA_GPU")
+}

@@ -7,7 +7,6 @@ package provisioner
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -16,16 +15,17 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
+
+	"github.com/containerd/containerd/reference"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v4"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v2"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/Azure/go-autorest/autorest"
-	log "github.com/sirupsen/logrus"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 func init() {
@@ -36,6 +36,14 @@ func init() {
 func createResourceGroup() error {
 	if AzureProps.IsCIManaged {
 		log.Infof("Resource group %q is CI managed. No need to create new one manually.", AzureProps.ResourceGroupName)
+
+		_, err := AzureProps.ResourceGroupClient.Get(context.Background(), AzureProps.ResourceGroupName, nil)
+		if err != nil {
+			err = fmt.Errorf("getting resource group %s: %w", AzureProps.ResourceGroupName, err)
+			log.Errorf("%v", err)
+			return err
+		}
+
 		return nil
 	}
 
@@ -44,14 +52,12 @@ func createResourceGroup() error {
 	}
 
 	log.Infof("Creating Resource group %s.\n", AzureProps.ResourceGroupName)
-	resourceGroupResp, err := AzureProps.ResourceGroupClient.CreateOrUpdate(context.Background(), AzureProps.ResourceGroupName, newRG, nil)
+	_, err := AzureProps.ResourceGroupClient.CreateOrUpdate(context.Background(), AzureProps.ResourceGroupName, newRG, nil)
 	if err != nil {
 		err = fmt.Errorf("creating resource group %s: %w", AzureProps.ResourceGroupName, err)
 		log.Errorf("%v", err)
 		return err
 	}
-
-	AzureProps.ResourceGroup = &resourceGroupResp.ResourceGroup
 
 	log.Infof("Successfully Created Resource group %s.\n", AzureProps.ResourceGroupName)
 	return nil
@@ -85,67 +91,13 @@ func deleteResourceGroup() error {
 	return nil
 }
 
-func createVnetSubnet() error {
-	addressPrefix := "10.2.0.0/16"
-	subnetAddressPrefix := "10.2.0.0/24"
-	vnetParams := armnetwork.VirtualNetwork{
-		Location: &AzureProps.Location,
-		Name:     &AzureProps.VnetName,
-		Properties: &armnetwork.VirtualNetworkPropertiesFormat{
-			AddressSpace: &armnetwork.AddressSpace{
-				AddressPrefixes: []*string{to.Ptr(addressPrefix)},
-			},
-			Subnets: []*armnetwork.Subnet{
-				{
-					Name: to.Ptr(AzureProps.SubnetName),
-					Properties: &armnetwork.SubnetPropertiesFormat{
-						AddressPrefix: to.Ptr(subnetAddressPrefix),
-					},
-				},
-			},
-		},
-	}
-
-	// Create the virtual network
-	log.Infof("Creating vnet %q in resource group %q with address prefix: %q and subnet address prefix: %q.", AzureProps.VnetName, AzureProps.ResourceGroupName, addressPrefix, subnetAddressPrefix)
-	pollerResponse, err := AzureProps.ManagedVnetClient.BeginCreateOrUpdate(context.Background(), AzureProps.ResourceGroupName, AzureProps.VnetName, vnetParams, nil)
-	if err != nil {
-		return fmt.Errorf("creating vnet %s: %w", AzureProps.VnetName, err)
-	}
-
-	_, err = pollerResponse.PollUntilDone(context.Background(), nil)
-	if err != nil {
-		return err
-	}
-
-	subnet, err := AzureProps.ManagedSubnetClient.Get(context.Background(), AzureProps.ResourceGroupName, AzureProps.VnetName, AzureProps.SubnetName, nil)
-	if err != nil {
-		return fmt.Errorf("fetching subnet after creating vnet: %w", err)
-	}
-
-	if subnet.ID == nil || *subnet.ID == "" {
-		return errors.New("SubnetID is empty, unknown error happened when creating subnet.")
-	}
-
-	AzureProps.SubnetID = *subnet.ID
-
-	log.Infof("Successfully created vnet %q with Subnet %q in resource group %q.", AzureProps.VnetName, AzureProps.SubnetID, AzureProps.ResourceGroupName)
-
-	return nil
-}
-
 func createResourceImpl() error {
 	err := createResourceGroup()
 	if err != nil {
 		return fmt.Errorf("creating resource group: %w", err)
 	}
 
-	// rg creation takes few seconds to complete keeping it as 60 second to be on safe side.
-	// TODO: Implement a better way of waiting.
-	const sleeptime = time.Duration(60) * time.Second
-	log.Info("Waiting for the resource group to be available before creating vnet.")
-	time.Sleep(sleeptime)
-	return createVnetSubnet()
+	return nil
 }
 
 func deleteResourceImpl() error {
@@ -207,6 +159,10 @@ func NewAzureCloudProvisioner(properties map[string]string) (CloudProvisioner, e
 		return nil, err
 	}
 
+	if AzureProps.IsSelfManaged {
+		return &AzureSelfManagedClusterProvisioner{}, nil
+	}
+
 	return &AzureCloudProvisioner{}, nil
 }
 
@@ -224,6 +180,7 @@ func (p *AzureCloudProvisioner) DeleteVPC(ctx context.Context, cfg *envconf.Conf
 func createFederatedIdentityCredential(aksOIDCIssuer string) error {
 	namespace := "confidential-containers-system"
 	serviceAccountName := "cloud-api-adaptor"
+	log.Infof("Successfully created federated identity credential %q in resource group %q", AzureProps.federatedIdentityCredentialName, AzureProps.ResourceGroupName)
 
 	if _, err := AzureProps.FederatedIdentityCredentialsClient.CreateOrUpdate(
 		context.Background(),
@@ -279,7 +236,6 @@ func (p *AzureCloudProvisioner) CreateCluster(ctx context.Context, cfg *envconf.
 					Mode:               to.Ptr(armcontainerservice.AgentPoolModeSystem),
 					OSType:             to.Ptr(armcontainerservice.OSType(AzureProps.OsType)),
 					EnableNodePublicIP: to.Ptr(false),
-					VnetSubnetID:       &AzureProps.SubnetID,
 					NodeLabels:         map[string]*string{"node.kubernetes.io/worker": to.Ptr("")},
 				},
 			},
@@ -295,16 +251,6 @@ func (p *AzureCloudProvisioner) CreateCluster(ctx context.Context, cfg *envconf.
 		Identity: &armcontainerservice.ManagedClusterIdentity{
 			Type: to.Ptr(armcontainerservice.ResourceIdentityTypeSystemAssigned),
 		},
-	}
-
-	// Enable service principal when not using the az CLI authentication method.
-	if !AzureProps.IsAzCliAuth {
-		spProfile := &armcontainerservice.ManagedClusterServicePrincipalProfile{
-			ClientID: to.Ptr(AzureProps.ClientID),
-			Secret:   to.Ptr(AzureProps.ClientSecret),
-		}
-
-		managedcluster.Properties.ServicePrincipalProfile = spProfile
 	}
 
 	pollerResp, err := AzureProps.ManagedAksClient.BeginCreateOrUpdate(
@@ -336,6 +282,36 @@ func (p *AzureCloudProvisioner) CreateCluster(ctx context.Context, cfg *envconf.
 		return fmt.Errorf("creating federated identity credential: %w", err)
 	}
 
+	// Fetch aks-rg details
+	aks_rg := *cluster.Properties.NodeResourceGroup
+
+	// Fetch default vnet name
+	vnetName := ""
+	pager := AzureProps.ManagedVnetClient.NewListPager(aks_rg, nil)
+	for pager.More() {
+		nextResult, err := pager.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("getting VNETs of AKS: %q: %w", AzureProps.ClusterName, err)
+		}
+		for _, v := range nextResult.Value {
+			vnetName = *v.Name
+		}
+	}
+
+	virtualNetwork, err := AzureProps.ManagedVnetClient.Get(ctx, aks_rg, vnetName, nil)
+	if err != nil {
+		return fmt.Errorf("failed to fetch vnet: %q: %v", vnetName, err)
+	}
+
+	SubnetsPtr := &virtualNetwork.Properties.Subnets
+	if SubnetsPtr == nil || len(*SubnetsPtr) == 0 {
+		return fmt.Errorf("no subnet found in the specified VNET: %q: %v", vnetName, err)
+	}
+
+	// Get the ID of the first subnet
+	subnetID := (*SubnetsPtr)[0].ID
+	AzureProps.SubnetID = *subnetID
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("getting user home directory: %w", err)
@@ -351,7 +327,6 @@ func (p *AzureCloudProvisioner) CreateCluster(ctx context.Context, cfg *envconf.
 	}
 
 	cfg.WithKubeconfigFile(kubeconfigPath)
-
 	return nil
 }
 
@@ -378,7 +353,7 @@ func (p *AzureCloudProvisioner) DeleteCluster(ctx context.Context, cfg *envconf.
 	return nil
 }
 
-func (p *AzureCloudProvisioner) GetProperties(ctx context.Context, cfg *envconf.Config) map[string]string {
+func getPropertiesImpl() map[string]string {
 	props := map[string]string{
 		"CLOUD_PROVIDER":        "azure",
 		"AZURE_SUBSCRIPTION_ID": AzureProps.SubscriptionID,
@@ -386,22 +361,19 @@ func (p *AzureCloudProvisioner) GetProperties(ctx context.Context, cfg *envconf.
 		"AZURE_RESOURCE_GROUP":  AzureProps.ResourceGroupName,
 		"CLUSTER_NAME":          AzureProps.ClusterName,
 		"AZURE_REGION":          AzureProps.Location,
-		"SSH_KEY_ID":            AzureProps.SshPrivateKey,
+		"SSH_KEY_ID":            AzureProps.SSHKeyID,
 		"SSH_USERNAME":          AzureProps.SshUserName,
 		"AZURE_IMAGE_ID":        AzureProps.ImageID,
 		"AZURE_SUBNET_ID":       AzureProps.SubnetID,
 		"AZURE_INSTANCE_SIZE":   AzureProps.InstanceSize,
 	}
 
-	if AzureProps.ClientSecret != "" {
-		props["AZURE_CLIENT_SECRET"] = AzureProps.ClientSecret
-	}
-
-	if AzureProps.TenantID != "" {
-		props["AZURE_TENANT_ID"] = AzureProps.TenantID
-	}
-
 	return props
+}
+
+func (p *AzureCloudProvisioner) GetProperties(ctx context.Context, cfg *envconf.Config) map[string]string {
+	log.Trace("GetProperties()")
+	return getPropertiesImpl()
 }
 
 func (p *AzureCloudProvisioner) UploadPodvm(imagePath string, ctx context.Context, cfg *envconf.Config) error {
@@ -420,12 +392,7 @@ func isAzureKustomizeConfigMapKey(key string) bool {
 }
 
 func isAzureKustomizeSecretKey(key string) bool {
-	switch key {
-	case "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID":
-		return true
-	default:
-		return false
-	}
+	return key == "AZURE_CLIENT_ID"
 }
 
 func NewAzureInstallOverlay(installDir string) (InstallOverlay, error) {
@@ -449,6 +416,36 @@ func (lio *AzureInstallOverlay) Delete(ctx context.Context, cfg *envconf.Config)
 
 func (lio *AzureInstallOverlay) Edit(ctx context.Context, cfg *envconf.Config, properties map[string]string) error {
 	var err error
+
+	// If a custom image is defined then update it in the kustomization file.
+	if AzureProps.CaaImage != "" {
+		spec, err := reference.Parse(AzureProps.CaaImage)
+		if err != nil {
+			return fmt.Errorf("parsing image: %w", err)
+		}
+
+		log.Infof("Updating CAA image with %q", spec.Locator)
+		if err = lio.overlay.SetKustomizeImage("cloud-api-adaptor", "newName", spec.Locator); err != nil {
+			return err
+		}
+
+		tag, digest := reference.SplitObject(spec.Object)
+
+		if tag != "" && strings.HasSuffix(tag, "@") {
+			tag = tag[:len(tag)-1]
+		}
+
+		log.Infof("Updating CAA image tag with %q", tag)
+		if err = lio.overlay.SetKustomizeImage("cloud-api-adaptor", "newTag", tag); err != nil {
+			return err
+		}
+
+		log.Infof("Updating CAA image digest with %q", digest)
+		if err = lio.overlay.SetKustomizeImage("cloud-api-adaptor", "digest", digest.String()); err != nil {
+			return err
+		}
+	}
+
 	for k, v := range properties {
 		// configMapGenerator
 		if isAzureKustomizeConfigMapKey(k) {

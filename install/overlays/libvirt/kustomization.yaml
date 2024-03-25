@@ -7,7 +7,7 @@ bases:
 images:
 - name: cloud-api-adaptor
   newName: quay.io/confidential-containers/cloud-api-adaptor # change image if needed
-  newTag: dev-6d7d2a3fe8243809b3c3a710792c8498292e2fc3
+  newTag: dev-d4496d008b65c979a4d24767979a77ed1ba21e76
 
 generatorOptions:
   disableNameSuffixHash: true
@@ -17,9 +17,13 @@ configMapGenerator:
   namespace: confidential-containers-system
   literals:
   - CLOUD_PROVIDER="libvirt"
+  - CLOUD_CONFIG_VERIFY="false" # It's better set as true to enable could config verify in production env
   - LIBVIRT_URI="qemu+ssh://root@192.168.122.1/system?no_verify=1" #set
   - LIBVIRT_NET="default" # set
   - LIBVIRT_POOL="default" # set
+  - DISABLECVM="true" # set as false to enable confidential VM
+  #- LIBVIRT_LAUNCH_SECURITY="" #sev or s390-pv
+  #- LIBVIRT_FIRMWARE="" # Uncomment and set if you want to change the firmware path. Defaults to /usr/share/edk2/ovmf/OVMF_CODE.fd
   #- LIBVIRT_VOL_NAME="" # Uncomment and set if you want to use a specific volume name. Defaults to podvm-base.qcow2
   #- PAUSE_IMAGE="" # Uncomment and set if you want to use a specific pause image
   #- VXLAN_PORT="" # Uncomment and set if you want to use a specific vxlan port. Defaults to 4789

@@ -14,16 +14,16 @@ variable "instance_type" {
 }
 
 variable "region" {
-  type    = string
+  type = string
 }
 
 variable "vpc_id" {
-  type = string
+  type    = string
   default = null
 }
 
 variable "subnet_id" {
-  type = string
+  type    = string
   default = null
 }
 
@@ -35,4 +35,30 @@ variable "podvm_distro" {
 variable "cloud_provider" {
   type    = string
   default = env("CLOUD_PROVIDER")
+}
+
+variable "volume_size" {
+  type = string
+  // Size in GiBs
+  default = 30
+}
+
+variable "disable_cloud_config" {
+  type    = string
+  default = env("DISABLE_CLOUD_CONFIG")
+}
+
+variable "config_script_src" {
+  type    = string
+  default = ""
+}
+
+variable "addons_script_src" {
+  type    = string
+  default = ""
+}
+
+variable "enable_nvidia_gpu" {
+  type    = string
+  default = env("ENABLE_NVIDIA_GPU")
 }

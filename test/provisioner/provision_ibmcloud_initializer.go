@@ -22,6 +22,7 @@ import (
 type IBMCloudProperties struct {
 	IBMCloudProvider  string
 	ApiKey            string
+	IamProfileID      string
 	Bucket            string
 	CaaImageTag       string
 	ClusterName       string
@@ -30,6 +31,7 @@ type IBMCloudProperties struct {
 	CosServiceURL     string
 	SecurityGroupID   string
 	IamServiceURL     string
+	IksServiceURL     string
 	InstanceProfile   string
 	KubeVersion       string
 	PodvmImageID      string
@@ -63,6 +65,7 @@ func initProperties(properties map[string]string) error {
 	IBMCloudProps = &IBMCloudProperties{
 		IBMCloudProvider:  properties["IBMCLOUD_PROVIDER"],
 		ApiKey:            properties["APIKEY"],
+		IamProfileID:      properties["IAM_PROFILE_ID"],
 		Bucket:            properties["COS_BUCKET"],
 		CaaImageTag:       properties["CAA_IMAGE_TAG"],
 		ClusterName:       properties["CLUSTER_NAME"],
@@ -70,6 +73,7 @@ func initProperties(properties map[string]string) error {
 		CosInstanceID:     properties["COS_INSTANCE_ID"],
 		CosServiceURL:     properties["COS_SERVICE_URL"],
 		IamServiceURL:     properties["IAM_SERVICE_URL"],
+		IksServiceURL:     properties["IKS_SERVICE_URL"],
 		InstanceProfile:   properties["INSTANCE_PROFILE_NAME"],
 		KubeVersion:       properties["KUBE_VERSION"],
 		PodvmImageID:      properties["PODVM_IMAGE_ID"],
@@ -131,9 +135,6 @@ func initProperties(properties map[string]string) error {
 
 	log.Debugf("%+v", IBMCloudProps)
 
-	if len(IBMCloudProps.ApiKey) <= 0 {
-		return errors.New("APIKEY was not set.")
-	}
 	if len(IBMCloudProps.ResourceGroupID) <= 0 {
 		log.Info("[warning] RESOURCE_GROUP_ID was not set.")
 	}
@@ -157,25 +158,30 @@ func initProperties(properties map[string]string) error {
 	}
 	log.Infof("VpcServiceURL is: %s.", IBMCloudProps.VpcServiceURL)
 
+	// IKS_SERVICE_URL can overwrite the default IksServiceURL IKS_SERVICE_URL=https://containers.cloud.ibm.com/global, for example IKS_SERVICE_URL="https://containers.test.cloud.ibm.com/global"
+	if len(IBMCloudProps.IksServiceURL) <= 0 {
+		IBMCloudProps.IksServiceURL = "https://containers.cloud.ibm.com/global"
+	}
+	log.Infof("IksServiceURL is: %s.", IBMCloudProps.IksServiceURL)
+
 	needProvisionStr := os.Getenv("TEST_PROVISION")
-	if strings.EqualFold(needProvisionStr, "yes") || strings.EqualFold(needProvisionStr, "true") {
+	if strings.EqualFold(needProvisionStr, "yes") || strings.EqualFold(needProvisionStr, "true") || Action == "uploadimage" {
+		if len(IBMCloudProps.ApiKey) <= 0 {
+			return errors.New("APIKEY is required for provisioning")
+		}
 		if len(IBMCloudProps.Region) <= 0 {
 			return errors.New("REGION was not set.")
 		}
+	}
+
+	if strings.EqualFold(needProvisionStr, "yes") || strings.EqualFold(needProvisionStr, "true") {
 		if len(IBMCloudProps.KubeVersion) <= 0 {
 			return errors.New("KUBE_VERSION was not set, get it via command: ibmcloud cs versions")
 		}
 		if len(IBMCloudProps.WorkerOS) <= 0 {
 			return errors.New("WORKER_OPERATION_SYSTEM was not set, set it like: UBUNTU_20_64, UBUNTU_18_S390X")
 		}
-
-		if err := initClustersAPI(); err != nil {
-			return err
-		}
 	} else {
-		if len(IBMCloudProps.PodvmImageID) <= 0 {
-			return errors.New("PODVM_IMAGE_ID was not set, set it with existing custom image id in VPC")
-		}
 		if len(IBMCloudProps.SshKeyID) <= 0 {
 			log.Info("[warning] SSH_KEY_ID was not set.")
 		}
@@ -204,10 +210,22 @@ func initProperties(properties map[string]string) error {
 		if len(IBMCloudProps.CosServiceURL) <= 0 {
 			return errors.New("COS_SERVICE_URL was not set, example: s3.us.cloud-object-storage.appdomain.cloud")
 		}
+	} else if len(IBMCloudProps.PodvmImageID) <= 0 {
+		return errors.New("PODVM_IMAGE_ID was not set, set it with existing custom image id in VPC")
 	}
 
-	if err := initVpcV1(); err != nil {
-		return err
+	if len(IBMCloudProps.ApiKey) <= 0 && len(IBMCloudProps.IamProfileID) <= 0 {
+		return errors.New("APIKEY or IAM_PROFILE_ID must be set")
+	}
+
+	if len(IBMCloudProps.ApiKey) > 0 {
+		if err := initClustersAPI(); err != nil {
+			return err
+		}
+
+		if err := initVpcV1(); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -227,6 +245,7 @@ func initVpcV1() error {
 		},
 		URL: IBMCloudProps.VpcServiceURL,
 	})
+
 	if err != nil {
 		return err
 	}
@@ -238,10 +257,21 @@ func initVpcV1() error {
 func initClustersAPI() error {
 	log.Trace("initClustersAPI()")
 
-	cfg := &bx.Config{
-		BluemixAPIKey: IBMCloudProps.ApiKey,
-		Region:        IBMCloudProps.Region,
+	iamServiceURLParts := strings.Split(IBMCloudProps.IamServiceURL, "/")
+	if len(iamServiceURLParts) < 3 || len(iamServiceURLParts[1]) != 0 {
+		return errors.New("IAM service endpoint is malformed")
 	}
+
+	tokenProviderEndpoint := iamServiceURLParts[0] + "//" + iamServiceURLParts[2]
+	log.Tracef("IAM token provider endpoint for bx config is %s.", tokenProviderEndpoint)
+
+	cfg := &bx.Config{
+		BluemixAPIKey:         IBMCloudProps.ApiKey,
+		Region:                IBMCloudProps.Region,
+		Endpoint:              &IBMCloudProps.IksServiceURL,
+		TokenProviderEndpoint: &tokenProviderEndpoint,
+	}
+
 	sess, err := bxsession.New(cfg)
 	if err != nil {
 		return err

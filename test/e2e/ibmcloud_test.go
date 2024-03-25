@@ -7,15 +7,18 @@ package e2e
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"strings"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 	pv "github.com/confidential-containers/cloud-api-adaptor/test/provisioner"
 	log "github.com/sirupsen/logrus"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/pointer"
 )
 
@@ -24,6 +27,24 @@ func TestCreateSimplePod(t *testing.T) {
 		vpc: pv.IBMCloudProps.VPC,
 	}
 	doTestCreateSimplePod(t, assert)
+}
+
+func TestCreateSimplePodWithNydusAnnotation(t *testing.T) {
+	assert := IBMCloudAssert{
+		vpc: pv.IBMCloudProps.VPC,
+	}
+	doTestCreateSimplePodWithNydusAnnotation(t, assert)
+}
+
+func TestCaaDaemonsetRollingUpdate(t *testing.T) {
+	if os.Getenv("TEST_CAA_ROLLING_UPDATE") == "yes" {
+		assert := IBMRollingUpdateAssert{
+			vpc: pv.IBMCloudProps.VPC,
+		}
+		doTestCaaDaemonsetRollingUpdate(t, &assert)
+	} else {
+		log.Infof("Ignore CAA DaemonSet upgrade  test")
+	}
 }
 
 func TestCreateConfidentialPod(t *testing.T) {
@@ -90,6 +111,7 @@ func TestCreatePeerPodContainerWithExternalIPAccess(t *testing.T) {
 	}
 	doTestCreatePeerPodContainerWithExternalIPAccess(t, assert)
 }
+
 func TestCreatePeerPodWithJob(t *testing.T) {
 	assert := IBMCloudAssert{
 		vpc: pv.IBMCloudProps.VPC,
@@ -131,6 +153,7 @@ func TestCreatePeerPodAndCheckEnvVariableLogsWithImageAndDeployment(t *testing.T
 	}
 	doTestCreatePeerPodAndCheckEnvVariableLogsWithImageAndDeployment(t, assert)
 }
+
 func TestCreatePeerPodWithLargeImage(t *testing.T) {
 	assert := IBMCloudAssert{
 		vpc: pv.IBMCloudProps.VPC,
@@ -149,12 +172,13 @@ func TestCreatePeerPodWithPVC(t *testing.T) {
 		storageClassName := "ibmc-vpc-block-5iops-tier"
 		storageSize := "10Gi"
 		podName := "nginx-pvc-pod"
-		imageName := "nginx"
+		imageName := "nginx:latest"
+		containerName := "nginx-pvc-container"
 		csiContainerName := "ibm-vpc-block-podvm-node-driver"
 		csiImageName := "gcr.io/k8s-staging-cloud-provider-ibm/ibm-vpc-block-csi-driver:v5.2.0"
 
 		myPVC := newPVC(nameSpace, pvcName, storageClassName, storageSize, corev1.ReadWriteOnce)
-		myPodwithPVC := newPodWithPVCFromIBMVPCBlockDriver(nameSpace, podName, imageName, imageName, csiContainerName, csiImageName, withRestartPolicy(corev1.RestartPolicyNever), withPVCBinding(mountPath, pvcName))
+		myPodwithPVC := newPodWithPVCFromIBMVPCBlockDriver(nameSpace, podName, containerName, imageName, csiContainerName, csiImageName, withPVCBinding(mountPath, pvcName))
 		doTestCreatePeerPodWithPVCAndCSIWrapper(t, assert, myPVC, myPodwithPVC, mountPath)
 	} else {
 		log.Infof("Ignore PeerPod with PVC (CSI wrapper) test")
@@ -297,6 +321,17 @@ func newPodWithPVCFromIBMVPCBlockDriver(namespace, podName, containerName, image
 					Name:            containerName,
 					Image:           imageName,
 					ImagePullPolicy: corev1.PullAlways,
+					Ports:           []corev1.ContainerPort{{ContainerPort: 80}},
+					ReadinessProbe: &corev1.Probe{
+						ProbeHandler: corev1.ProbeHandler{
+							HTTPGet: &corev1.HTTPGetAction{
+								Path: "/",
+								Port: intstr.FromInt(80),
+							},
+						},
+						InitialDelaySeconds: 10,
+						PeriodSeconds:       5,
+					},
 				},
 			},
 			ServiceAccountName: "ibm-vpc-block-node-sa",
@@ -380,6 +415,86 @@ func newPodWithPVCFromIBMVPCBlockDriver(namespace, podName, containerName, image
 	return pod
 }
 
+func TestCreatePeerPodWithAuthenticatedImagewithValidCredentials(t *testing.T) {
+	assert := IBMCloudAssert{
+		vpc: pv.IBMCloudProps.VPC,
+	}
+	if os.Getenv("REGISTRY_CREDENTIAL_ENCODED") != "" && os.Getenv("AUTHENTICATED_REGISTRY_IMAGE") != "" {
+		doTestCreatePeerPodWithAuthenticatedImagewithValidCredentials(t, assert)
+	} else {
+		t.Skip("Registry Credentials not exported")
+	}
+}
+
+func TestCreatePeerPodWithAuthenticatedImageWithInvalidCredentials(t *testing.T) {
+	assert := IBMCloudAssert{
+		vpc: pv.IBMCloudProps.VPC,
+	}
+	if os.Getenv("REGISTRY_CREDENTIAL_ENCODED") != "" && os.Getenv("AUTHENTICATED_REGISTRY_IMAGE") != "" {
+		doTestCreatePeerPodWithAuthenticatedImageWithInvalidCredentials(t, assert)
+	} else {
+		t.Skip("Registry Credentials not exported")
+	}
+}
+
+func TestCreatePeerPodWithAuthenticatedImageWithoutCredentials(t *testing.T) {
+	assert := IBMCloudAssert{
+		vpc: pv.IBMCloudProps.VPC,
+	}
+	if os.Getenv("AUTHENTICATED_REGISTRY_IMAGE") != "" {
+		doTestCreatePeerPodWithAuthenticatedImageWithoutCredentials(t, assert)
+	} else {
+		t.Skip("Image Name not exported")
+	}
+}
+
+func TestDeletePod(t *testing.T) {
+	assert := IBMCloudAssert{
+		vpc: pv.IBMCloudProps.VPC,
+	}
+	doTestDeleteSimplePod(t, assert)
+}
+
+func TestPodVMwithNoAnnotations(t *testing.T) {
+	assert := IBMCloudAssert{
+		vpc: pv.IBMCloudProps.VPC,
+	}
+	doTestPodVMwithNoAnnotations(t, assert, getProfileType("b", "2x8"))
+}
+
+func TestPodVMwithAnnotationsInstanceType(t *testing.T) {
+	assert := IBMCloudAssert{
+		vpc: pv.IBMCloudProps.VPC,
+	}
+	doTestPodVMwithAnnotationsInstanceType(t, assert, getProfileType("c", "2x4"))
+}
+
+func TestPodVMwithAnnotationsCPUMemory(t *testing.T) {
+	assert := IBMCloudAssert{
+		vpc: pv.IBMCloudProps.VPC,
+	}
+	doTestPodVMwithAnnotationsCPUMemory(t, assert, getProfileType("m", "2x16"))
+}
+
+func TestPodVMwithAnnotationsInvalidInstanceType(t *testing.T) {
+	assert := IBMCloudAssert{
+		vpc: pv.IBMCloudProps.VPC,
+	}
+	doTestPodVMwithAnnotationsInvalidInstanceType(t, assert, getProfileType("b", "2x4"))
+}
+func TestPodVMwithAnnotationsLargerMemory(t *testing.T) {
+	assert := IBMCloudAssert{
+		vpc: pv.IBMCloudProps.VPC,
+	}
+	doTestPodVMwithAnnotationsLargerMemory(t, assert)
+}
+func TestPodVMwithAnnotationsLargerCPU(t *testing.T) {
+	assert := IBMCloudAssert{
+		vpc: pv.IBMCloudProps.VPC,
+	}
+	doTestPodVMwithAnnotationsLargerCPU(t, assert)
+}
+
 // IBMCloudAssert implements the CloudAssert interface for ibmcloud.
 type IBMCloudAssert struct {
 	vpc *vpcv1.VpcV1
@@ -405,4 +520,79 @@ func (c IBMCloudAssert) HasPodVM(t *testing.T, id string) {
 	}
 	// It didn't find the PodVM if it reached here.
 	t.Error("PodVM was not created")
+}
+
+type IBMRollingUpdateAssert struct {
+	vpc *vpcv1.VpcV1
+	// cache Pod VM instance IDs for rolling update test
+	instanceIDs [2]string
+}
+
+func (c *IBMRollingUpdateAssert) CachePodVmIDs(t *testing.T, deploymentName string) {
+	options := &vpcv1.ListInstancesOptions{
+		VPCID: &pv.IBMCloudProps.VpcID,
+	}
+	instances, _, err := c.vpc.ListInstances(options)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	index := 0
+	for i, instance := range instances.Instances {
+		name := *instance.Name
+		log.Debugf("Instance number: %d, Instance id: %s, Instance name: %s", i, *instance.ID, name)
+		if strings.Contains(name, deploymentName) {
+			c.instanceIDs[index] = *instance.ID
+			index++
+		}
+	}
+}
+
+func (c *IBMRollingUpdateAssert) VerifyOldVmDeleted(t *testing.T) {
+	for _, id := range c.instanceIDs {
+		options := &vpcv1.GetInstanceOptions{
+			ID: &id,
+		}
+		in, _, err := c.vpc.GetInstance(options)
+
+		if err != nil {
+			log.Printf("Instance %s has been deleted: %v", id, err)
+		} else {
+			if *in.Status == "deleting" {
+				log.Printf("Instance %s is being deleting", id)
+			} else {
+				log.Printf("Instance %s current status: %s", id, *in.Status)
+				t.Fatalf("Instance %s still exists", id)
+			}
+		}
+	}
+}
+
+func (c IBMCloudAssert) getInstanceType(t *testing.T, podName string) (string, error) {
+	options := &vpcv1.ListInstancesOptions{}
+	instances, _, err := c.vpc.ListInstances(options)
+
+	if err != nil {
+		return "", err
+	}
+	for _, instance := range instances.Instances {
+		name := *instance.Name
+		if strings.HasPrefix(name, strings.Join([]string{"podvm", podName, ""}, "-")) {
+			profile := instance.Profile.Name
+			return *profile, nil
+		}
+	}
+	return "", errors.New("Failed to Create PodVM Instance")
+}
+
+func getProfileType(prefix string, config string) string {
+	if strings.EqualFold("s390x", pv.IBMCloudProps.PodvmImageArch) {
+		if strings.Contains(pv.IBMCloudProps.InstanceProfile, "e-") {
+			return prefix + "z2e-" + config
+		} else {
+			return prefix + "z2-" + config
+		}
+	}
+	return prefix + "x2-" + config
 }

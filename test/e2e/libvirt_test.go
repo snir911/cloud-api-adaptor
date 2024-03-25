@@ -3,9 +3,10 @@
 package e2e
 
 import (
-	"libvirt.org/go/libvirt"
 	"strings"
 	"testing"
+
+	"libvirt.org/go/libvirt"
 )
 
 func TestLibvirtCreateSimplePod(t *testing.T) {
@@ -13,7 +14,13 @@ func TestLibvirtCreateSimplePod(t *testing.T) {
 	doTestCreateSimplePod(t, assert)
 }
 
+func TestLibvirtCreateSimplePodWithNydusAnnotation(t *testing.T) {
+	assert := LibvirtAssert{}
+	doTestCreateSimplePodWithNydusAnnotation(t, assert)
+}
+
 func TestLibvirtCreatePodWithConfigMap(t *testing.T) {
+	skipTestOnCI(t)
 	assert := LibvirtAssert{}
 	doTestCreatePodWithConfigMap(t, assert)
 }
@@ -22,6 +29,51 @@ func TestLibvirtCreatePodWithSecret(t *testing.T) {
 	assert := LibvirtAssert{}
 	doTestCreatePodWithSecret(t, assert)
 }
+
+func TestLibvirtCreatePeerPodContainerWithExternalIPAccess(t *testing.T) {
+	skipTestOnCI(t)
+	assert := LibvirtAssert{}
+	doTestCreatePeerPodContainerWithExternalIPAccess(t, assert)
+
+}
+
+func TestLibvirtCreatePeerPodWithJob(t *testing.T) {
+	assert := LibvirtAssert{}
+	doTestCreatePeerPodWithJob(t, assert)
+}
+
+func TestLibvirtCreatePeerPodAndCheckUserLogs(t *testing.T) {
+	assert := LibvirtAssert{}
+	doTestCreatePeerPodAndCheckUserLogs(t, assert)
+}
+
+func TestLibvirtCreatePeerPodAndCheckWorkDirLogs(t *testing.T) {
+	assert := LibvirtAssert{}
+	doTestCreatePeerPodAndCheckWorkDirLogs(t, assert)
+}
+
+func TestLibvirtCreatePeerPodAndCheckEnvVariableLogsWithImageOnly(t *testing.T) {
+	assert := LibvirtAssert{}
+	doTestCreatePeerPodAndCheckEnvVariableLogsWithImageOnly(t, assert)
+}
+
+func TestLibvirtCreatePeerPodAndCheckEnvVariableLogsWithDeploymentOnly(t *testing.T) {
+	assert := LibvirtAssert{}
+	doTestCreatePeerPodAndCheckEnvVariableLogsWithDeploymentOnly(t, assert)
+}
+
+func TestLibvirtCreatePeerPodAndCheckEnvVariableLogsWithImageAndDeployment(t *testing.T) {
+	assert := LibvirtAssert{}
+	doTestCreatePeerPodAndCheckEnvVariableLogsWithImageAndDeployment(t, assert)
+}
+
+/*
+Failing due to issues will pulling image (ErrImagePull)
+func TestLibvirtCreatePeerPodWithLargeImage(t *testing.T) {
+	assert := LibvirtAssert{}
+	doTestCreatePeerPodWithLargeImage(t, assert)
+}
+*/
 
 // LibvirtAssert implements the CloudAssert interface for Libvirt.
 type LibvirtAssert struct {
@@ -50,4 +102,9 @@ func (l LibvirtAssert) HasPodVM(t *testing.T, id string) {
 
 	// It didn't find the PodVM if it reached here.
 	t.Error("PodVM was not created")
+}
+
+func (l LibvirtAssert) getInstanceType(t *testing.T, podName string) (string, error) {
+	// Get Instance Type of PodVM
+	return "", nil
 }

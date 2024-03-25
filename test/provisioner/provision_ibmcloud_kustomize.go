@@ -10,10 +10,13 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 )
 
@@ -28,13 +31,8 @@ type IBMCloudInstallOverlay struct {
 
 type QuayTagsResponse struct {
 	Tags []struct {
-		Name       string `json:"name"`
-		ModifiedAt string `json:"last_modified"`
-		Digest     string `json:"manifest_digest"`
-		Size       string `json:"size"`
-		Manifest   bool   `json:"is_manifest_list"`
-		Reversion  bool   `json:"reversion"`
-		StartTime  int    `json:"start_ts"`
+		Name     string `json:"name"`
+		Manifest bool   `json:"is_manifest_list"`
 	} `json:"tags"`
 	Others map[string]interface{} `json:"-"`
 }
@@ -52,6 +50,8 @@ func isKustomizeConfigMapKey(key string) bool {
 	case "IBMCLOUD_PODVM_IMAGE_ID":
 		return true
 	case "IBMCLOUD_PODVM_INSTANCE_PROFILE_NAME":
+		return true
+	case "IBMCLOUD_PODVM_INSTANCE_PROFILE_LIST":
 		return true
 	case "IBMCLOUD_ZONE":
 		return true
@@ -71,6 +71,8 @@ func isKustomizeConfigMapKey(key string) bool {
 func isKustomizeSecretKey(key string) bool {
 	switch key {
 	case "IBMCLOUD_API_KEY":
+		return true
+	case "IBMCLOUD_IAM_PROFILE_ID":
 		return true
 	case "IBMCLOUD_IAM_ENDPOINT":
 		return true
@@ -170,7 +172,44 @@ func (lio *IBMCloudInstallOverlay) Edit(ctx context.Context, cfg *envconf.Config
 			}
 		}
 	}
+	if os.Getenv("REGISTRY_CREDENTIAL_ENCODED") != "" {
+		client, err := cfg.NewClient()
+		if err != nil {
+			return err
+		}
+		clientSet, err := kubernetes.NewForConfig(client.RESTConfig())
+		if err != nil {
+			return err
+		}
+		_, err = clientSet.CoreV1().Secrets("confidential-containers-system").Get(ctx, "auth-json-secret", metav1.GetOptions{})
+		if err == nil {
+			log.Info("Deleting pre-existing auth-json-secret...")
+			err = clientSet.CoreV1().Secrets("confidential-containers-system").Delete(ctx, "auth-json-secret", metav1.DeleteOptions{})
+			if err != nil {
+				return err
+			}
+		}
 
+		log.Info("Setting up auth.json")
+		data := map[string]interface{}{
+			"auths": map[string]interface{}{
+				"quay.io": map[string]interface{}{
+					"auth": os.Getenv("REGISTRY_CREDENTIAL_ENCODED"),
+				},
+			},
+		}
+		jsondata, err := json.MarshalIndent(data, "", " ")
+		if err != nil {
+			return err
+		}
+
+		if err := os.WriteFile("../../install/overlays/ibmcloud/auth.json", jsondata, 0644); err != nil {
+			return err
+		}
+		if err = lio.overlay.SetKustomizeSecretGeneratorFile("auth-json-secret", "auth.json"); err != nil {
+			return err
+		}
+	}
 	if err = lio.overlay.YamlReload(); err != nil {
 		return err
 	}

@@ -43,6 +43,11 @@ type Config struct {
 	DisableCVM           bool
 	InstanceSizes        instanceSizes
 	InstanceSizeSpecList []cloud.InstanceTypeSpec
+	Tags                 cloud.KeyValueFlag
+	DisableCloudConfig   bool
+	// Disabled by default, we want to do measured boot.
+	// Secure boot brings no additional security.
+	EnableSecureBoot bool
 }
 
 func (c Config) Redact() Config {

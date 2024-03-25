@@ -9,25 +9,30 @@ import (
 	"net/netip"
 
 	libvirt "libvirt.org/go/libvirt"
+	libvirtxml "libvirt.org/go/libvirtxml"
 )
 
 type Config struct {
-	URI         string
-	PoolName    string
-	NetworkName string
-	DataDir     string
-	VolName     string
+	URI            string
+	PoolName       string
+	NetworkName    string
+	DataDir        string
+	DisableCVM     bool
+	VolName        string
+	LaunchSecurity string
+	Firmware       string
 }
 
 type vmConfig struct {
-	name         string
-	cpu          uint
-	mem          uint
-	rootDiskSize uint64
-	userData     string
-	metaData     string
-	ips          []netip.Addr
-	instanceId   string //keeping it consistent with sandbox.vsi
+	name               string
+	cpu                uint
+	mem                uint
+	rootDiskSize       uint64
+	userData           string
+	ips                []netip.Addr
+	instanceId         string //keeping it consistent with sandbox.vsi
+	launchSecurityType LaunchSecurityType
+	firmware           string
 }
 
 type createDomainOutput struct {
@@ -48,4 +53,31 @@ type libvirtClient struct {
 	dataDir string
 
 	volName string
+
+	// information about the target node
+	nodeInfo *libvirt.NodeInfo
+
+	// host capabilities
+	caps *libvirtxml.Caps
+}
+
+type LaunchSecurityType int
+
+const (
+	NoLaunchSecurity LaunchSecurityType = iota
+	SEV
+	S390PV
+)
+
+func (l LaunchSecurityType) String() string {
+	switch l {
+	case NoLaunchSecurity:
+		return "None"
+	case SEV:
+		return "SEV"
+	case S390PV:
+		return "S390PV"
+	default:
+		return "unknown"
+	}
 }

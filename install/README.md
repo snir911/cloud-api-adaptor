@@ -39,13 +39,14 @@
 You can either deploy the CoCo operator and cloud-api-adaptor with the `Makefile` by running
 * set CLOUD_PROVIDER
     ```
-    export CLOUD_PROVIDER=<aws|azure|ibmcloud|libvirt>
+    export CLOUD_PROVIDER=<aws|azure|ibmcloud|ibmcloud-powervs|libvirt|vsphere>
     ```
+    * optional: set also `RESOURCE_CTRL=true` to allow the peerpod-ctrl to run, monitor and delete dangling cloud resources (upon provider's support)
 
 * `make deploy` deploys operator, runtime and cloud-api-adaptor pod in the configured cluster
     * validate kubectl is available in your `$PATH` and `$KUBECONFIG` is set
 
-> **Note:** `make delete` deletes the cloud-api-adaptor daemonset from the configured cluster
+> **Note:** `make delete` deletes the cloud-api-adaptor daemonset from the configured cluster (and peerpod-ctrl if RESOURCE_CTRL=true is set)
 
 Alternatively the manual approach, if you want to pick a specific CoCo release/reference is:
 
@@ -121,7 +122,7 @@ Alternatively the manual approach, if you want to pick a specific CoCo release/r
 
 * Set CLOUD_PROVIDER
     ```
-    export CLOUD_PROVIDER=<aws|azure|ibmcloud|libvirt>
+    export CLOUD_PROVIDER=<aws|azure|ibmcloud|ibmcloud-powervs|libvirt|vsphere>
     ```
 
 * Set container registry and image name

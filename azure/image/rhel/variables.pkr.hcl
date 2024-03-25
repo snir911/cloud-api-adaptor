@@ -11,7 +11,7 @@ variable "az_image_name" {
 // instance type
 variable "vm_size" {
   type    = string
-  default = "Standard_A2_v2"
+  default = "Standard_D2as_v5"
 }
 
 variable "resource_group" {
@@ -19,23 +19,31 @@ variable "resource_group" {
 }
 
 variable "client_id" {
-  type    = string
-  default = ""
+  type = string
+  # This can be empty when using local authentication enabled by setting `use_azure_cli_auth` to true.
+  default   = ""
+  sensitive = true
 }
 
 variable "client_secret" {
-  type    = string
-  default = ""
+  type = string
+  # This can be empty when using local authentication enabled by setting `use_azure_cli_auth` to true.
+  default   = ""
+  sensitive = true
 }
 
 variable "subscription_id" {
-  type    = string
-  default = ""
+  type = string
+  # This can be empty when using local authentication enabled by setting `use_azure_cli_auth` to true.
+  default   = ""
+  sensitive = true
 }
 
 variable "tenant_id" {
-  type    = string
-  default = ""
+  type = string
+  # This can be empty when using local authentication enabled by setting `use_azure_cli_auth` to true.
+  default   = ""
+  sensitive = true
 }
 
 variable "use_azure_cli_auth" {
@@ -49,15 +57,18 @@ variable "ssh_username" {
 }
 
 variable "publisher" {
-  type = string
+  type    = string
+  default = "RedHat"
 }
 
 variable "offer" {
-  type = string
+  type    = string
+  default = "RHEL"
 }
 
 variable "sku" {
-  type = string
+  type    = string
+  default = "9-lvm"
 }
 
 variable "podvm_distro" {
@@ -83,4 +94,42 @@ variable "plan_product" {
 variable "plan_publisher" {
   type    = string
   default = ""
+}
+
+variable "disable_cloud_config" {
+  type    = string
+  default = env("DISABLE_CLOUD_CONFIG")
+}
+
+# shared gallery name
+variable "az_gallery_name" {
+  type    = string
+  default = ""
+}
+
+# shared gallery image name
+variable "az_gallery_image_name" {
+  type    = string
+  default = ""
+}
+
+# shared gallery image version
+variable "az_gallery_image_version" {
+  type    = string
+  default = ""
+}
+
+variable "config_script_src" {
+  type    = string
+  default = ""
+}
+
+variable "addons_script_src" {
+  type    = string
+  default = ""
+}
+
+variable "enable_nvidia_gpu" {
+  type    = string
+  default = env("ENABLE_NVIDIA_GPU")
 }

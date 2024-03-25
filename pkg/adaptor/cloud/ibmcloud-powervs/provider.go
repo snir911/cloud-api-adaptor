@@ -142,6 +142,14 @@ func (p *ibmcloudPowerVSProvider) Teardown() error {
 	return nil
 }
 
+func (p *ibmcloudPowerVSProvider) ConfigVerifier() error {
+	ImageId := p.serviceConfig.ImageID
+	if len(ImageId) == 0 {
+		return fmt.Errorf("ImageId is empty")
+	}
+	return nil
+}
+
 func (p *ibmcloudPowerVSProvider) getVMIPs(ctx context.Context, instance *models.PVMInstance) ([]netip.Addr, error) {
 	var ips []netip.Addr
 	ins, err := p.powervsService.instanceClient(ctx).Get(*instance.PvmInstanceID)
@@ -151,7 +159,12 @@ func (p *ibmcloudPowerVSProvider) getVMIPs(ctx context.Context, instance *models
 
 	for i, network := range ins.Networks {
 		if ins.Networks[i].Type == "fixed" {
-			ip, err := netip.ParseAddr(network.IPAddress)
+			ip_address := network.IPAddress
+			if p.serviceConfig.UsePublicIP {
+				ip_address = network.ExternalIP
+			}
+
+			ip, err := netip.ParseAddr(ip_address)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse pod node IP %q: %w", network.IPAddress, err)
 			}

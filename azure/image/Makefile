@@ -2,9 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-include ../../podvm/Makefile.inc
+ROOT_DIR := $(dir $(lastword $(MAKEFILE_LIST)))../../
+include $(ROOT_DIR)podvm/Makefile.inc
 
 .PHONY: image clean
+
+ENABLE_NVIDIA_GPU ?= yes
 
 image: $(IMAGE_FILE)
 
@@ -12,7 +15,7 @@ $(IMAGE_FILE): $(BINARIES) $(FILES)
 	mkdir -p toupload
 	# export the required packer variables as PKR_VAR_<var_name>
 	# export PKR_VAR_client_id="${AZURE_CLIENT_ID}"
-	# export PKR_VAR_client_secret="${AZURE_CLIENT_SECRET}"
+	# export PKR_VAR_client_secret="${AZURE_CLIENT_SECRET:%=REDACTED}"
 	# export PKR_VAR_subscription_id="${AZURE_SUBSCRIPTION_ID}"
 	# export PKR_VAR_tenant_id="${AZURE_TENANT_ID}"
 	# export PKR_VAR_resource_group="${AZURE_RESOURCE_GROUP}"
@@ -23,7 +26,11 @@ $(IMAGE_FILE): $(BINARIES) $(FILES)
 	# export PKR_VAR_az_gallery_image_name="${GALLERY_IMAGE_NAME}"
 	# export PKR_VAR_az_gallery_image_version="${GALLERY_IMAGE_VERSION}"
 
-	packer build ./${PODVM_DISTRO}/
+	packer init ./${PODVM_DISTRO}/
+	packer build \
+		-var config_script_src=$(ROOT_DIR)/podvm/qcow2 \
+		-var addons_script_src=$(ROOT_DIR)/podvm/addons \
+		./${PODVM_DISTRO}/
 	rm -fr toupload
 
 clean:

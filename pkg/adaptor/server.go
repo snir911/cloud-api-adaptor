@@ -31,13 +31,15 @@ const (
 )
 
 type ServerConfig struct {
-	TLSConfig     *tlsutil.TLSConfig
-	SocketPath    string
-	CriSocketPath string
-	PauseImage    string
-	PodsDir       string
-	ForwarderPort string
-	ProxyTimeout  time.Duration
+	TLSConfig               *tlsutil.TLSConfig
+	SocketPath              string
+	CriSocketPath           string
+	PauseImage              string
+	PodsDir                 string
+	ForwarderPort           string
+	ProxyTimeout            time.Duration
+	AAKBCParams             string
+	EnableCloudConfigVerify bool
 }
 
 type Server interface {
@@ -47,14 +49,15 @@ type Server interface {
 }
 
 type server struct {
-	cloudService  cloud.Service
-	vmInfoService pbPodVMInfo.PodVMInfoService
-	workerNode    podnetwork.WorkerNode
-	ttRpc         *ttrpc.Server
-	readyCh       chan struct{}
-	stopCh        chan struct{}
-	socketPath    string
-	stopOnce      sync.Once
+	cloudService            cloud.Service
+	vmInfoService           pbPodVMInfo.PodVMInfoService
+	workerNode              podnetwork.WorkerNode
+	ttRpc                   *ttrpc.Server
+	readyCh                 chan struct{}
+	stopCh                  chan struct{}
+	socketPath              string
+	stopOnce                sync.Once
+	enableCloudConfigVerify bool
 }
 
 func NewServer(provider cloud.Provider, cfg *ServerConfig, workerNode podnetwork.WorkerNode) Server {
@@ -62,20 +65,27 @@ func NewServer(provider cloud.Provider, cfg *ServerConfig, workerNode podnetwork
 	logger.Printf("server config: %#v", cfg)
 
 	agentFactory := proxy.NewFactory(cfg.PauseImage, cfg.CriSocketPath, cfg.TLSConfig, cfg.ProxyTimeout)
-	cloudService := cloud.NewService(provider, agentFactory, workerNode, cfg.PodsDir, cfg.ForwarderPort)
+	cloudService := cloud.NewService(provider, agentFactory, workerNode, cfg.PodsDir, cfg.ForwarderPort, cfg.AAKBCParams)
 	vmInfoService := vminfo.NewService(cloudService)
 
 	return &server{
-		socketPath:    cfg.SocketPath,
-		cloudService:  cloudService,
-		vmInfoService: vmInfoService,
-		workerNode:    workerNode,
-		readyCh:       make(chan struct{}),
-		stopCh:        make(chan struct{}),
+		socketPath:              cfg.SocketPath,
+		cloudService:            cloudService,
+		vmInfoService:           vmInfoService,
+		workerNode:              workerNode,
+		readyCh:                 make(chan struct{}),
+		stopCh:                  make(chan struct{}),
+		enableCloudConfigVerify: cfg.EnableCloudConfigVerify,
 	}
 }
 
 func (s *server) Start(ctx context.Context) (err error) {
+	if s.enableCloudConfigVerify {
+		verifierErr := s.cloudService.ConfigVerifier()
+		if verifierErr != nil {
+			return err
+		}
+	}
 
 	ttRpc, err := ttrpc.NewServer()
 	if err != nil {

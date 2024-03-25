@@ -10,22 +10,35 @@ cloudimg:
         url: https://cloud-images.ubuntu.com/releases/focal/release-20230107/ubuntu-20.04-server-cloudimg-s390x.img
         checksum: "sha256:24673aa86785573d3a92e15166ff81beff88cbb0abc01938f156eb1332e87cd3"
   centos:
-    stream-8:
+    stream-9:
       amd64:
-        url: https://cloud.centos.org/centos/8-stream/x86_64/images/CentOS-Stream-GenericCloud-8-20200113.0.x86_64.qcow2
-        checksum: "sha256:b80ca9ccad8715aa1aeee582906096d3190b91cebe05fcb3ac7cb197fd68a7fe"
+        url: https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-20231002.0.x86_64.qcow2
+        checksum: "sha256:d12bb6934dd207e242d6aa13f6a4ca4969449c14c3bbdd88a5ce5f5203597a40"
+  rhel:
+    9: # dummy link, get trial image from: https://www.redhat.com/en/technologies/linux-platforms/enterprise-linux/server/trial
+      amd64:
+        url: https://access.redhat.com/downloads/content/479/ver=/rhel---9/9.2/x86_64/product-software
+        checksum: "sha256:34ff41b5274692c984e3860b21136af8b6ae502744c6c7578dda82002fba0287"
+
 tools:
-  golang: 1.20.6
-  rust: 1.66.0
+  golang: 1.20.11
+  rust: 1.72.0
   protoc: 3.11.4
 # Referenced Git repositories
 git:
   guest-components:
     url: https://github.com/confidential-containers/guest-components
-    reference: af35c0649bab2d000b5c350bc5e60db67ef9e1a5
+    reference: v0.8.0
   kata-containers:
     url: https://github.com/kata-containers/kata-containers
-    reference: CCv0
-  cloud-api-adaptor:
-    url: https://github.com/confidential-containers/cloud-api-adaptor
-    reference: main
+    reference: CC-0.8.1
+  umoci:
+    url: https://github.com/opencontainers/umoci
+    reference: v0.4.7
+  skopeo:
+    url: https://github.com/containers/skopeo
+    reference: v1.5.0
+oci:
+  pause:
+    registry: docker://registry.k8s.io/pause
+    tag: 3.6

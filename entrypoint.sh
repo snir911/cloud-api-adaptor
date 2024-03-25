@@ -16,6 +16,8 @@ optionals+=""
 [[ "${CERT_FILE}" ]] && [[ "${CERT_KEY}" ]] && optionals+="-cert-file ${CERT_FILE} -cert-key ${CERT_KEY} "
 [[ "${TLS_SKIP_VERIFY}" ]] && optionals+="-tls-skip-verify "
 [[ "${PROXY_TIMEOUT}" ]] && optionals+="-proxy-timeout ${PROXY_TIMEOUT} "
+[[ "${AA_KBC_PARAMS}" ]] && optionals+="-aa-kbc-params ${AA_KBC_PARAMS} "
+[[ "${CLOUD_CONFIG_VERIFY}" == "true" ]] && optionals+="-cloud-config-verify "
 
 test_vars() {
     for i in "$@"; do
@@ -34,6 +36,7 @@ one_of() {
 aws() {
     test_vars AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
 
+
     [[ "${PODVM_LAUNCHTEMPLATE_NAME}" ]] && optionals+="-use-lt -aws-lt-name ${PODVM_LAUNCHTEMPLATE_NAME} " # has precedence if set
     [[ "${AWS_SG_IDS}" ]] && optionals+="-securitygroupids ${AWS_SG_IDS} "                                  # MUST if template is not used
     [[ "${PODVM_AMI_ID}" ]] && optionals+="-imageid ${PODVM_AMI_ID} "                                       # MUST if template is not used
@@ -42,6 +45,11 @@ aws() {
     [[ "${SSH_KP_NAME}" ]] && optionals+="-keyname ${SSH_KP_NAME} "      # if not retrieved from IMDS
     [[ "${AWS_SUBNET_ID}" ]] && optionals+="-subnetid ${AWS_SUBNET_ID} " # if not set retrieved from IMDS
     [[ "${AWS_REGION}" ]] && optionals+="-aws-region ${AWS_REGION} "     # if not set retrieved from IMDS
+    [[ "${TAGS}" ]] && optionals+="-tags ${TAGS} " # Custom tags applied to pod vm
+    [[ "${USE_PUBLIC_IP}" == "true" ]] && optionals+="-use-public-ip " # Use public IP for pod vm
+    [[ "${ROOT_VOLUME_SIZE}" ]] && optionals+="-root-volume-size ${ROOT_VOLUME_SIZE} " # Specify root volume size for pod vm
+    [[ "${DISABLECVM}" == "true" ]] && optionals+="-disable-cvm "
+    [[ "${DISABLE_CLOUD_CONFIG}" == "true" ]] && optionals+="-disable-cloud-config "
 
     set -x
     exec cloud-api-adaptor aws \
@@ -55,8 +63,11 @@ azure() {
     test_vars AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID AZURE_RESOURCE_GROUP AZURE_SUBNET_ID AZURE_IMAGE_ID
 
     [[ "${SSH_USERNAME}" ]] && optionals+="-ssh-username ${SSH_USERNAME} "
-    [[ "${DISABLECVM}" ]] && optionals+="-disable-cvm "
+    [[ "${DISABLECVM}" == "true" ]] && optionals+="-disable-cvm "
     [[ "${AZURE_INSTANCE_SIZES}" ]] && optionals+="-instance-sizes ${AZURE_INSTANCE_SIZES} "
+    [[ "${TAGS}" ]] && optionals+="-tags ${TAGS} " # Custom tags applied to pod vm
+    [[ "${DISABLE_CLOUD_CONFIG}" == "true" ]] && optionals+="-disable-cloud-config "
+    [[ "${ENABLE_SECURE_BOOT}" == "true" ]] && optionals+="-enable-secure-boot "
 
     set -x
     exec cloud-api-adaptor azure \
@@ -99,6 +110,7 @@ ibmcloud_powervs() {
     [[ "${POWERVS_PROCESSORS}" ]] && optionals+="-cpu ${POWERVS_PROCESSORS} "
     [[ "${POWERVS_PROCESSOR_TYPE}" ]] && optionals+="-proc-type ${POWERVS_PROCESSOR_TYPE} "
     [[ "${POWERVS_SYSTEM_TYPE}" ]] && optionals+="-sys-type ${POWERVS_SYSTEM_TYPE} "
+    [[ "${USE_PUBLIC_IP}" == "true" ]] && optionals+="-use-public-ip " # Use public IP for pod vm
 
     set -x
     exec cloud-api-adaptor ibmcloud-powervs \
@@ -115,6 +127,7 @@ ibmcloud_powervs() {
 libvirt() {
     test_vars LIBVIRT_URI
 
+    [[ "${DISABLECVM}" = "true" ]] && optionals+="-disable-cvm "
     set -x
     exec cloud-api-adaptor libvirt \
         -uri "${LIBVIRT_URI}" \

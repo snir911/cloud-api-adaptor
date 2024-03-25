@@ -44,12 +44,14 @@ ARG VPC_ID
 ARG SUBNET_ID
 ARG INSTANCE_TYPE=t3.small
 ARG IMAGE_NAME=peer-pod-ami
+ARG VOL_SIZE
 
 ENV AWS_REGION ${AWS_REGION}
 ENV VPC_ID ${VPC_ID}
 ENV SUBNET_ID ${SUBNET_ID}
 ENV INSTANCE_TYPE ${INSTANCE_TYPE}
 ENV IMAGE_NAME ${IMAGE_NAME}
+ENV VOLUME_SIZE ${VOLUME_SIZE}
 
 # Install AWS cli which will be used for default-vpc creation if required
 RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
@@ -63,5 +65,4 @@ RUN --mount=type=secret,id=AWS_ACCESS_KEY_ID \
     export AWS_ACCESS_KEY_ID=$(cat /run/secrets/AWS_ACCESS_KEY_ID) && \
     export AWS_SECRET_ACCESS_KEY=$(cat /run/secrets/AWS_SECRET_ACCESS_KEY) && \
     cd cloud-api-adaptor/aws/image && \
-    packer init ${PODVM_DISTRO}/ && \
     BINARIES= PAUSE_BUNDLE= CLOUD_PROVIDER=aws PODVM_DISTRO=$PODVM_DISTRO make image

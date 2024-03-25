@@ -1,6 +1,6 @@
 
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+IMG ?= quay.io/confidential-containers/peer-pods-webhook:latest
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.24.2
 
@@ -19,8 +19,8 @@ endif
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
-# Currently supported architectures are amd64/x86_64 and s390x
-ARCHES ?= amd64,s390x
+# Currently supported architectures are amd64/x86_64, s390x and ppc64le
+ARCHES ?= amd64,s390x,ppc64le
 
 .PHONY: all
 all: build
@@ -153,3 +153,32 @@ $(CONTROLLER_GEN): $(LOCALBIN)
 envtest: $(ENVTEST) ## Download envtest-setup locally if necessary.
 $(ENVTEST): $(LOCALBIN)
 	test -s $(LOCALBIN)/setup-envtest || GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+
+##@ Verify
+
+ALL_VERIFY_CHECKS = modules gen manifests
+
+.PHONY: verify
+verify: $(addprefix verify-,$(ALL_VERIFY_CHECKS)) ## Run all verify-* targets
+
+.PHONY: verify-modules
+verify-modules: ## Verify go modules are up to date
+	go mod tidy
+	@if !(git diff --quiet HEAD -- go.sum go.mod); then \
+		git diff; \
+		echo "go module files are out of date"; exit 1; \
+	fi
+
+.PHONY: verify-gen
+verify-gen: generate ## Verfiy go generated files are up to date
+	@if !(git diff --quiet HEAD); then \
+		git diff; \
+		echo "generated files are out of date, run make generate"; exit 1; \
+	fi
+
+.PHONY: verify-manifests
+verify-manifests: manifests ## Verfiy manifests are up to date
+	@if !(git diff --quiet HEAD); then \
+		git diff; \
+		echo "generated files are out of date, run make manifests"; exit 1; \
+	fi

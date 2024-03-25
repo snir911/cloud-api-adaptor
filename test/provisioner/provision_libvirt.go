@@ -8,11 +8,13 @@ package provisioner
 import (
 	"context"
 	"fmt"
+
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 
+	log "github.com/sirupsen/logrus"
 	"libvirt.org/go/libvirt"
 	"libvirt.org/go/libvirtxml"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
@@ -32,6 +34,7 @@ type LibvirtProvisioner struct {
 	uri          string           // Libvirt URI
 	wd           string           // libvirt's directory path on this repository
 	volumeName   string           // Podvm volume name
+	clusterName  string           // Cluster name
 }
 
 // LibvirtInstallOverlay implements the InstallOverlay interface
@@ -70,10 +73,18 @@ func NewLibvirtProvisioner(properties map[string]string) (CloudProvisioner, erro
 		vol_name = properties["libvirt_vol_name"]
 	}
 
-	// TODO: accept a different URI.
-	conn, err := libvirt.NewConnect("qemu:///system")
+	conn_uri := "qemu:///system"
+	if properties["libvirt_conn_uri"] != "" {
+		conn_uri = properties["libvirt_conn_uri"]
+	}
+	conn, err := libvirt.NewConnect(conn_uri)
 	if err != nil {
 		return nil, err
+	}
+
+	clusterName := "peer-pods"
+	if properties["cluster_name"] != "" {
+		clusterName = properties["cluster_name"]
 	}
 
 	// TODO: Check network and storage are not nil?
@@ -85,25 +96,35 @@ func NewLibvirtProvisioner(properties map[string]string) (CloudProvisioner, erro
 		uri:          uri,
 		wd:           wd,
 		volumeName:   vol_name,
+		clusterName:  clusterName,
 	}, nil
 }
 
 func (l *LibvirtProvisioner) CreateCluster(ctx context.Context, cfg *envconf.Config) error {
+
 	cmd := exec.Command("/bin/bash", "-c", "./kcli_cluster.sh create")
 	cmd.Dir = l.wd
 	cmd.Stdout = os.Stdout
 	// TODO: better handle stderr. Messages getting out of order.
 	cmd.Stderr = os.Stderr
+	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, "CLUSTER_NAME="+l.clusterName)
+	cmd.Env = append(cmd.Env, "LIBVIRT_NETWORK="+l.network)
+	cmd.Env = append(cmd.Env, "LIBVIRT_POOL="+l.storage)
 	err := cmd.Run()
 	if err != nil {
 		return err
 	}
 
-	// TODO: cluster name should be customized.
-	clusterName := "peer-pods"
+	clusterName := l.clusterName
 	home, _ := os.UserHomeDir()
 	kubeconfig := path.Join(home, ".kcli/clusters", clusterName, "auth/kubeconfig")
 	cfg.WithKubeconfigFile(kubeconfig)
+
+	if err := AddNodeRoleWorkerLabel(ctx, clusterName, cfg); err != nil {
+
+		return fmt.Errorf("labeling nodes: %w", err)
+	}
 
 	return nil
 }
@@ -184,33 +205,64 @@ func (l *LibvirtProvisioner) GetProperties(ctx context.Context, cfg *envconf.Con
 }
 
 func (l *LibvirtProvisioner) UploadPodvm(imagePath string, ctx context.Context, cfg *envconf.Config) error {
-	// TODO: convert to use the libvirt.org/go/libvirt API.
-	//sPool, err := l.GetStoragePool()
-	//if err != nil {
-	//	return err
-	//}
+	log.Trace("UploadPodvm()")
 
-	//sVol, err := sPool.LookupStorageVolByName(l.volumeName)
-	//if err != nil {
-	//	return err
-	//}
-
-	//err = sVol.Upload(stream *Stream, 0, length uint64, libvirt.STORAGE_VOL_UPLOAD_SPARSE_STREAM)
-	//if err != nil {
-	//	return err
-	//}
-
-	//n, _ := sVol.GetName()
-
-	//fmt.Printf("%s\n", n)
-	cmd := exec.Command("/bin/bash", "-c",
-		fmt.Sprintf("virsh -c qemu:///system vol-upload --vol %s %s --pool default --sparse", l.volumeName, imagePath))
-	cmd.Dir = l.wd
-	cmd.Stdout = os.Stdout
-	// TODO: better handle stderr. Messages getting out of order.
-	cmd.Stderr = os.Stderr
-	err := cmd.Run()
+	sPool, err := l.GetStoragePool()
 	if err != nil {
+		return err
+	}
+
+	fileStat, err := os.Stat(imagePath)
+	if err != nil {
+		return err
+	}
+	length := fileStat.Size()
+
+	sVol, err := sPool.LookupStorageVolByName(l.volumeName)
+	if err != nil {
+		return err
+	}
+
+	stream, err := l.conn.NewStream(0)
+	if err != nil {
+		return err
+	}
+
+	if err := sVol.Upload(stream, 0, uint64(length), libvirt.STORAGE_VOL_UPLOAD_SPARSE_STREAM); err != nil {
+		return err
+	}
+
+	fileByteSlice, err := os.ReadFile(imagePath)
+	if err != nil {
+		return err
+	}
+
+	sent := 0
+	source := func(stream *libvirt.Stream, nbytes int) ([]byte, error) {
+		tosend := nbytes
+		if tosend > (len(fileByteSlice) - sent) {
+			tosend = len(fileByteSlice) - sent
+		}
+
+		if tosend == 0 {
+			return []byte{}, nil
+		}
+
+		data := fileByteSlice[sent : sent+tosend]
+		sent += tosend
+
+		return data, nil
+	}
+
+	if err := stream.SendAll(source); err != nil {
+		return err
+	}
+
+	if err := stream.Finish(); err != nil {
+		return err
+	}
+
+	if err := stream.Free(); err != nil {
 		return err
 	}
 

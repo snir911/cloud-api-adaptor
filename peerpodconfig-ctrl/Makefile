@@ -47,7 +47,7 @@ ifeq ($(USE_IMAGE_DIGESTS), true)
 endif
 
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+IMG ?= quay.io/confidential-containers/peerpodconfig-ctrl:latest
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.23
 
@@ -172,6 +172,11 @@ envtest: $(LOCAL_BIN) ## Download envtest-setup locally if necessary.
 
 ##@ Verify
 
+ALL_VERIFY_CHECKS = modules gen manifests
+
+.PHONY: verify
+verify: $(addprefix verify-,$(ALL_VERIFY_CHECKS)) ## Run all verify-* targets
+
 .PHONY: verify-modules
 verify-modules: ## Verify go modules are up to date
 	go mod tidy
@@ -185,6 +190,13 @@ verify-gen: generate ## Verfiy go generated files are up to date
 	@if !(git diff --quiet HEAD); then \
 		git diff; \
 		echo "generated files are out of date, run make generate"; exit 1; \
+	fi
+
+.PHONY: verify-manifests
+verify-manifests: manifests ## Verfiy manifests are up to date
+	@if !(git diff --quiet HEAD); then \
+		git diff; \
+		echo "generated files are out of date, run make manifests"; exit 1; \
 	fi
 
 .PHONY: bundle

@@ -14,7 +14,7 @@ $ CLOUD_PROVIDER=libvirt make test-e2e
 ```
 
 The above command run tests on an existing cluster. It will look for the kubeconf file exported on the
-`KUBECONFIG` variable, and then in `$HOME/.kube/config` if not found. 
+`KUBECONFIG` variable, and then in `$HOME/.kube/config` if not found.
 
 You can instruct the tool to provision a test environment though, as shown below:
 
@@ -46,9 +46,37 @@ By default it is given 20 minutes for the entire e2e execution to complete, othe
 
 To leave the cluster untouched by the execution finish you should export `TEST_TEARDOWN=no`, otherwise the framework will attempt to wipe out any resources created. For example, if `TEST_PROVISION=yes` is used to create a VPC and cluster for testing and `TEST_TEARDOWN=no` not specified, then at the end of the test the provisioned cluster and VPC, will both be deleted.
 
+To use existing cluster which have already installed Cloud API Adaptor, you should export `TEST_INSTALL_CAA=no`.
+
 ## Provision file specifics
 
 As mentioned on the previous section, a properties file can be passed to the cloud provisioner that will be used to controll the provisioning operations. The properties are specific of each cloud provider though, see on the sections below.
+
+### AWS provision properties
+
+Use the properties on the table below for AWS:
+
+|Property|Description|Default|
+|---|---|---|
+|aws_region|AWS region|Account default|
+|aws_vpc_cidrblock|AWS VPC CIDR block|10.0.0.0/24|
+|aws_vpc_id|AWS VPC ID||
+|aws_vpc_igw_id|AWS VPC Internet Gateway ID||
+|aws_vpc_rt_id|AWS VPC Route Table ID||
+|aws_vpc_sg_id|AWS VPC Security Groups ID||
+|aws_vpc_subnet_id|AWS VPC Subnet ID||
+|cluster_type|Kubernetes cluster type. Either **onprem** or **eks** (see Notes below) |onprem|
+|pause_image|Kubernetes pause image||
+|podvm_aws_ami_id|AWS AMI ID of the podvm||
+|ssh_kp_name|AWS SSH key-pair name ||
+|vxlan_port|VXLAN port number||
+
+>Notes:
+ * The AWS credentials are obtained from the CLI [configuration files](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html). **Important**: the access key and secret are recorded in plain-text in [install/overlays/aws/kustomization.yaml](https://github.com/confidential-containers/cloud-api-adaptor/tree/main/install/overlays/aws/kustomization.yaml)
+ * The subnet is created with CIDR IPv4 block 10.0.0.0/25. In case of deploying an EKS cluster,
+a secondary (private) subnet is created with CIDR IPv4 block 10.0.0.128/25
+ * The cluster type **onprem** assumes Kubernetes is already provisioned and its kubeconfig file path can be found at the `KUBECONFIG` environment variable or in the `~/.kube/config` file. Whereas **eks** type instructs to create an [AWS EKS](https://aws.amazon.com/eks/) cluster on the VPC
+ * You must have `qemu-img` installed in your workstation or CI runner because it is used to convert an qcow2 disk to raw.
 
 ### Libvirt provision properties
 
@@ -58,11 +86,13 @@ Use the properties on the table below for Libvirt:
 |---|---|---|
 |libvirt_network|Libvirt Network|"default"|
 |libvirt_storage|Libvirt storage pool|"default"|
-|libvirt_url|Libvirt connection URI|"qemu+ssh://root@192.168.122.1/system?no_verify=1"|
 |libvirt_vol_name|Volume name|"podvm-base.qcow2"|
+|libvirt_uri|Libvirt pod URI|"qemu+ssh://root@192.168.122.1/system?no_verify=1"|
+|libvirt_conn_uri|Libvirt host URI|"qemu:///system"|
 |libvirt_ssh_key_file|Path to SSH private key||
 |pause_image|k8s pause image||
 |vxlan_port| VXLAN port number||
+|cluster_name|Cluster Name| "peer-pods"|
 
 # Adding support for a new cloud provider
 
@@ -85,13 +115,18 @@ Create another Go file named `<CLOUD_PROVIDER>_test.go` to host the test suite a
 Likewise the provision file, you should tag the test file with `//go:build <CLOUD_PROVIDER>`.
 
 You can have tests specific for the cloud provider or re-use the existing suite found in
-[common_suite_test.go](./common_suite_test.go) (or mix both). In the later cases, you must first implement the `CloudAssert` interface (see its definition in [common.go](./common.go)) because some tests will need to do assertions on the cloud side, so there should provider-specific asserts implementations.   
+[common_suite_test.go](./common_suite_test.go) (or mix both). In the later cases, you must first implement the `CloudAssert` interface (see its definition in [common.go](./common.go)) because some tests will need to do assertions on the cloud side, so there should provider-specific asserts implementations.
 
-Once you got the assertions done, create the test function which wrap the common suite function. For example, suppose there is a re-usable `doTestCreateSimplePod` test then you can wrap it in test function like shown below:  
+Once you got the assertions done, create the test function which wrap the common suite function. For example, suppose there is a re-usable `doTestCreateSimplePod` test then you can wrap it in test function like shown below:
 
 ```go
 func TestCloudProviderCreateSimplePod(t *testing.T) {
-	assert := MyAssert{}
-	doTestCreateSimplePod(t, assert)
+    assert := MyAssert{}
+    doTestCreateSimplePod(t, assert)
 }
 ```
+## Running tests for PodVM with Authenticated Registry
+
+For running e2e test cases specifically for checking PodVM with Image from Authenticated Registry, we need to export following two variables
+- `AUTHENTICATED_REGISTRY_IMAGE` - Name of the image along with the tag from authenticated registry (example: quay.io/kata-containers/confidential-containers-auth:test)
+- `REGISTRY_CREDENTIAL_ENCODED` - Credentials of registry encrypted as BASE64ENCODED(USERNAME:PASSWORD). If you're using quay registry, we can get the encrypted credentials from Account Settings >> Generate Encrypted Password >> Docker Configuration

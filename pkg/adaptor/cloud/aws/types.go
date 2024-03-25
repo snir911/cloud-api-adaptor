@@ -50,6 +50,12 @@ type Config struct {
 	UseLaunchTemplate    bool
 	InstanceTypes        instanceTypes
 	InstanceTypeSpecList []cloud.InstanceTypeSpec
+	Tags                 cloud.KeyValueFlag
+	UsePublicIP          bool
+	RootVolumeSize       int
+	RootDeviceName       string
+	DisableCVM           bool
+	DisableCloudConfig   bool
 }
 
 func (c Config) Redact() Config {

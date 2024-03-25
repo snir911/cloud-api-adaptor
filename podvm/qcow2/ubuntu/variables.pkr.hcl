@@ -44,7 +44,7 @@ variable "ssh_username" {
 }
 
 variable "ssh_timeout" {
-  type = string
+  type    = string
   default = "15m"
 }
 
@@ -59,17 +59,17 @@ variable "qemu_binary" {
 }
 
 variable "machine_type" {
-  type = string
+  type    = string
   default = "pc"
 }
 
 variable "boot_wait" {
-  type = string
+  type    = string
   default = "10s"
 }
 
 variable "output_directory" {
-  type = string
+  type    = string
   default = "output"
 }
 
@@ -99,11 +99,16 @@ variable "os_arch" {
 }
 
 variable "is_uefi" {
-  type        = bool
-  default     = false
+  type    = bool
+  default = false
 }
 
 variable "uefi_firmware" {
   type    = string
   default = "/usr/share/OVMF/OVMF_CODE.fd"
+}
+
+variable "disable_cloud_config" {
+  type    = string
+  default = env("DISABLE_CLOUD_CONFIG")
 }
