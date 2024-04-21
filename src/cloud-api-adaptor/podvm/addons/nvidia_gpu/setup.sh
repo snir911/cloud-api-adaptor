@@ -25,12 +25,28 @@ chmod +x /usr/share/oci/hooks/prestart/nvidia-container-toolkit.sh
 # Add NVIDIA packages
 if  [[ "$PODVM_DISTRO" == "ubuntu" ]]; then
     export DEBIAN_FRONTEND=noninteractive
-    distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
-    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-    curl -s -L https://nvidia.github.io/libnvidia-container/$distribution/libnvidia-container.list | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-    apt-get -q update -y
-    apt-get -q install -y "${NVIDIA_USERSPACE_PKGS[@]/%/-${NVIDIA_USERSPACE_VERSION}}"
-    apt-get -q install -y nvidia-driver-${NVIDIA_DRIVER_VERSION}
+    sudo apt update;
+    sudo apt-mark hold linux-azure-6.2 linux-image-6.2.0 linux-azure linux-headers-azure linux-image-azure linux-tools-azure linux-cloud-tools-azure;
+    #echo Y | sudo apt upgrade;
+    sudo sh -c 'echo "install nvidia /sbin/modprobe ecdsa_generic ecdh; /sbin/modprobe --ignore-install nvidia" > /etc/modprobe.d/nvidia-lkca.conf'
+    sudo apt install -y nvidia-driver-535-server-open linux-modules-nvidia-535-server-open-azure;
+    echo Y | sudo update-initramfs -u
+    #sudo nvidia-smi -pm 1
+    echo "add nvidia persitenced on reboot."
+    sudo bash -c 'echo "#!/bin/bash" > /etc/rc.local; echo "nvidia-smi -pm 1" >>/etc/rc.local; echo "nvidia-smi conf-compute -srs 1" >> /etc/rc.local;'
+    sudo chmod +x /etc/rc.local
+
+    echo "Marking the following Nvidia packages. They will not be updated with apt upgrade: "
+    apt list --installed | grep 'nvidia' | cut -d/ -f1
+    sudo apt-mark hold $(apt list --installed | grep 'nvidia' | cut -d/ -f1)
+
+
+    #distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+    #curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+    #curl -s -L https://nvidia.github.io/libnvidia-container/$distribution/libnvidia-container.list | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+    #apt-get -q update -y
+    #apt-get -q install -y "${NVIDIA_USERSPACE_PKGS[@]/%/-${NVIDIA_USERSPACE_VERSION}}"
+    #apt-get -q install -y nvidia-driver-${NVIDIA_DRIVER_VERSION}
 fi
 if  [[ "$PODVM_DISTRO" == "rhel" ]]; then
     dnf config-manager --add-repo http://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo
