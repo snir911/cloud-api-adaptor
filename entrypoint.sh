@@ -49,12 +49,12 @@ aws() {
     [[ "${USE_PUBLIC_IP}" == "true" ]] && optionals+="-use-public-ip " # Use public IP for pod vm
     [[ "${ROOT_VOLUME_SIZE}" ]] && optionals+="-root-volume-size ${ROOT_VOLUME_SIZE} " # Specify root volume size for pod vm
     [[ "${DISABLECVM}" == "true" ]] && optionals+="-disable-cvm "
-    [[ "${DISABLE_CLOUD_CONFIG}" == "true" ]] && optionals+="-disable-cloud-config "
 
     set -x
     exec cloud-api-adaptor aws \
         -aws-region "${AWS_REGION}" \
         -pods-dir /run/peerpod/pods \
+	-disable-cloud-config \
         ${optionals} \
         -socket /run/peerpod/hypervisor.sock
 }
@@ -66,7 +66,6 @@ azure() {
     [[ "${DISABLECVM}" == "true" ]] && optionals+="-disable-cvm "
     [[ "${AZURE_INSTANCE_SIZES}" ]] && optionals+="-instance-sizes ${AZURE_INSTANCE_SIZES} "
     [[ "${TAGS}" ]] && optionals+="-tags ${TAGS} " # Custom tags applied to pod vm
-    [[ "${DISABLE_CLOUD_CONFIG}" == "true" ]] && optionals+="-disable-cloud-config "
     [[ "${ENABLE_SECURE_BOOT}" == "true" ]] && optionals+="-enable-secure-boot "
 
     set -x
@@ -79,6 +78,7 @@ azure() {
         -subnetid "${AZURE_SUBNET_ID}" \
         -securitygroupid "${AZURE_NSG_ID}" \
         -imageid "${AZURE_IMAGE_ID}" \
+	-disable-cloud-config \
         ${optionals}
 }
 
