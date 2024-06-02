@@ -34,6 +34,7 @@ if  [[ "$PODVM_DISTRO" == "ubuntu" ]]; then
 fi
 if  [[ "$PODVM_DISTRO" == "rhel" ]]; then
     dnf config-manager --add-repo http://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo
+    dnf install -q -y kernel-modules
 
     dnf install -q -y "${NVIDIA_USERSPACE_PKGS[@]/%/-${NVIDIA_USERSPACE_VERSION}}"
     # This will use the default stream
