@@ -34,11 +34,14 @@ if  [[ "$PODVM_DISTRO" == "ubuntu" ]]; then
 fi
 if  [[ "$PODVM_DISTRO" == "rhel" ]]; then
     dnf config-manager --add-repo http://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo
+    sed -i '2imodule_hotfixes=1' /etc/yum.repos.d/cuda-rhel9.repo
+    dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
 
     dnf install -q -y "${NVIDIA_USERSPACE_PKGS[@]/%/-${NVIDIA_USERSPACE_VERSION}}"
     # This will use the default stream
     dnf -q -y module install nvidia-driver:${NVIDIA_DRIVER_VERSION}
     dnf install -q -y kernel-modules
+
 fi
 
 # Configure the settings for nvidia-container-runtime
