@@ -9,6 +9,9 @@
 FROM registry.access.redhat.com/ubi9/ubi:9.2
 
 ARG ARCH
+# PROTOC_ARCH="x86_64" | "s390x_64"
+ARG PROTOC_ARCH="x86_64"
+ARG YQ_ARCH
 ARG PACKER_VERSION
 ARG GO_VERSION
 ARG PROTOC_VERSION
@@ -27,17 +30,17 @@ RUN if [[ -n "${ACTIVATION_KEY}" && -n "${ORG_ID}" ]]; then \
     subscription-manager register --org=${ORG_ID} --activationkey=${ACTIVATION_KEY}; \
     fi
     
-RUN subscription-manager repos --enable codeready-builder-for-rhel-9-${ARCH}-rpms; \
+RUN subscription-manager repos --enable codeready-builder-for-rhel-9-${ARCH/amd64/x86_64}-rpms; \
     dnf groupinstall -y 'Development Tools'; \
     dnf install -y yum-utils gnupg git --allowerasing curl pkg-config clang perl libseccomp-devel gpgme-devel \
     device-mapper-devel qemu-kvm unzip wget libassuan-devel genisoimage cloud-utils-growpart cloud-init; 
 
-RUN curl -L -o /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${ARCH/x86_64/amd64} \
+RUN curl -L -o /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${YQ_ARCH} \
     && echo "${YQ_CHECKSUM#sha256:}  /usr/local/bin/yq" | sha256sum -c -
 RUN chmod a+x /usr/local/bin/yq && \
-    curl https://dl.google.com/go/go${GO_VERSION}.linux-${ARCH/x86_64/amd64}.tar.gz -o go${GO_VERSION}.linux-${ARCH/x86_64/amd64}.tar.gz && \
-    rm -rf /usr/local/go && tar -C /usr/local -xzf go${GO_VERSION}.linux-${ARCH/x86_64/amd64}.tar.gz && \
-    rm -f go${GO_VERSION}.linux-${ARCH/x86_64/amd64}.tar.gz
+    curl https://dl.google.com/go/go${GO_VERSION}.linux-${YQ_ARCH}.tar.gz -o go${GO_VERSION}.linux-${YQ_ARCH}.tar.gz && \
+    rm -rf /usr/local/go && tar -C /usr/local -xzf go${GO_VERSION}.linux-${YQ_ARCH}.tar.gz && \
+    rm -f go${GO_VERSION}.linux-${YQ_ARCH}.tar.gz
 ENV PATH="/usr/local/go/bin:${PATH}"
 
 # Install packer. Packer doesn't does not have prebuilt s390x arch binaries above Packer version 0.1.5 
@@ -64,8 +67,8 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "${RUST_VER
 
 ENV PATH "/root/.cargo/bin:/usr/local/go/bin:$PATH"
 
-RUN wget https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-${ARCH/s390x/s390_64}.zip && \
-    unzip protoc-${PROTOC_VERSION}-linux-${ARCH/s390x/s390_64}.zip -d /usr/local && rm -f protoc-${PROTOC_VERSION}-linux-${ARCH/s390x/s390_64}.zip
+RUN wget https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-${PROTOC_ARCH}.zip && \
+    unzip protoc-${PROTOC_VERSION}-linux-${PROTOC_ARCH}.zip -d /usr/local && rm -f protoc-${PROTOC_VERSION}-linux-${PROTOC_ARCH}.zip
 
 WORKDIR /src
 ENV GOPATH /src
