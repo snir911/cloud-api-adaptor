@@ -199,6 +199,12 @@ podvm-binaries:
 	$(DOCKER_OPTS) .
 	rm -rf .git
 
+# when local image is used it needs to be mounted in the container
+ifdef IMAGE_LOCAL_PATH
+IMAGE_OPTS = --build-arg IMAGE_CHECKSUM=$(IMAGE_CHECKSUM) --build-arg IMAGE_URL=/tmp/image.img -v $(IMAGE_LOCAL_PATH):/tmp/image.img:Z
+else # IMAGE_URL
+IMAGE_OPTS = --build-arg IMAGE_CHECKSUM=$(IMAGE_CHECKSUM) --build-arg IMAGE_URL=$(IMAGE_URL)
+endif
 podvm-image:
 	cp -rf ../../.git .git
 	cd ../ && docker buildx build -t $(PODVM_IMAGE) -f cloud-api-adaptor/podvm/$(PODVM_DOCKERFILE) \
@@ -207,7 +213,6 @@ podvm-image:
 	--build-arg PODVM_DISTRO=$(PODVM_DISTRO) \
 	--build-arg ARCH=$(ARCH) \
 	--build-arg CLOUD_PROVIDER=$(or $(CLOUD_PROVIDER),generic) \
-	--build-arg IMAGE_URL=$(IMAGE_URL) \
-	--build-arg IMAGE_CHECKSUM=$(IMAGE_CHECKSUM) \
+	$(IMAGE_OPTS) \
 	$(DOCKER_OPTS) .
 	rm -rf .git
