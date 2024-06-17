@@ -15,6 +15,10 @@ IMAGE_CHECKSUM := $(or $(IMAGE_CHECKSUM),$($(PODVM_DISTRO)_$(DEB_ARCH)_IMAGE_CHE
 
 ifndef IMAGE_URL
 $(error "IMAGE_URL is not defined")
+else ifeq ($(filter build,$(MAKECMDGOALS)),image)
+ifeq ($(IMAGE_URL),$(rhel_$(DEB_ARCH)_IMAGE_URL))
+$(error "RHEL image needs to be downloaded manually from $(rhel_$(DEB_ARCH)_IMAGE_URL), see documentation")
+endif
 endif
 ifndef IMAGE_CHECKSUM
 $(error "IMAGE_CHECKSUM is not defined")
