@@ -1,6 +1,6 @@
 #!/bin/bash
 
-NVIDIA_DRIVER_VERSION=${NVIDIA_DRIVER_VERSION:-535}
+NVIDIA_DRIVER_BRANCH=${NVIDIA_DRIVER_BRANCH:-535}
 NVIDIA_USERSPACE_VERSION=${NVIDIA_USERSPACE_VERSION:-1.13.5-1}
 
 NVIDIA_USERSPACE_PKGS=(nvidia-container-toolkit libnvidia-container1 libnvidia-container-tools)
@@ -30,14 +30,14 @@ if  [[ "$PODVM_DISTRO" == "ubuntu" ]]; then
     curl -s -L https://nvidia.github.io/libnvidia-container/$distribution/libnvidia-container.list | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
     apt-get -q update -y
     apt-get -q install -y "${NVIDIA_USERSPACE_PKGS[@]/%/-${NVIDIA_USERSPACE_VERSION}}"
-    apt-get -q install -y nvidia-driver-${NVIDIA_DRIVER_VERSION}
+    apt-get -q install -y nvidia-driver-${NVIDIA_DRIVER_BRANCH}
 fi
 if  [[ "$PODVM_DISTRO" == "rhel" ]]; then
     dnf config-manager --add-repo http://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo
 
     dnf install -q -y "${NVIDIA_USERSPACE_PKGS[@]/%/-${NVIDIA_USERSPACE_VERSION}}"
     # This will use the default stream
-    dnf -q -y module install nvidia-driver:${NVIDIA_DRIVER_VERSION}
+    dnf -q -y module install nvidia-driver:${NVIDIA_DRIVER_BRANCH}
     dnf install -q -y kernel-modules
 fi
 
