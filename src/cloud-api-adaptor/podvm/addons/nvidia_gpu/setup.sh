@@ -1,9 +1,18 @@
 #!/bin/bash
 
+NVIDIA_DRIVER_VERSION=${NVIDIA_DRIVER_VERSION} # must be set explicitly to pin version
+KERNEL_VERSION=${KERNEL_VERSION} # must be set explicitly to pin version
+NVIDIA_DRIVER_BRANCH=${NVIDIA_DRIVER_VERSION%.*.*} # if version is set, derive the branch
 NVIDIA_DRIVER_BRANCH=${NVIDIA_DRIVER_BRANCH:-535}
 NVIDIA_USERSPACE_VERSION=${NVIDIA_USERSPACE_VERSION:-1.13.5-1}
 
 NVIDIA_USERSPACE_PKGS=(nvidia-container-toolkit libnvidia-container1 libnvidia-container-tools)
+
+echo "KERNEL_VERSION: ${KERNEL_VERSION}"
+echo "NVIDIA_DRIVER_VERSION: ${NVIDIA_DRIVER_VERSION}"
+echo "NVIDIA_DRIVER_BRANCH: ${NVIDIA_DRIVER_BRANCH}"
+echo "NVIDIA_USERSPACE_VERSION: ${NVIDIA_USERSPACE_VERSION}"
+echo "NVIDIA_USERSPACE_PKGS: ${NVIDIA_USERSPACE_PKGS[@]}"
 
 # Create the prestart hook directory
 mkdir -p /usr/share/oci/hooks/prestart
@@ -34,11 +43,37 @@ if  [[ "$PODVM_DISTRO" == "ubuntu" ]]; then
 fi
 if  [[ "$PODVM_DISTRO" == "rhel" ]]; then
     dnf config-manager --add-repo http://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo
-
     dnf install -q -y "${NVIDIA_USERSPACE_PKGS[@]/%/-${NVIDIA_USERSPACE_VERSION}}"
-    # This will use the default stream
-    dnf -q -y module install nvidia-driver:${NVIDIA_DRIVER_BRANCH}
-    dnf install -q -y kernel-modules
+
+    # check the following nvidia page to find mathcing kernel-driver pair
+    # https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/precompiled/
+    if [[ -n ${NVIDIA_DRIVER_VERSION} ]] && [[ -n ${KERNEL_VERSION} ]]; then
+        dnf -q -y module enable nvidia-driver:${NVIDIA_DRIVER_VERSION%.*.*}
+        dnf install -q -y  kernel-${KERNEL_VERSION}* \
+            kernel-core-${KERNEL_VERSION}* \
+            kernel-modules-core-${KERNEL_VERSION}*
+
+        dnf install -y -q cuda-drivers-${NVIDIA_DRIVER_VERSION} \
+            nvidia-driver-${NVIDIA_DRIVER_VERSION} \
+            nvidia-driver-NVML-${NVIDIA_DRIVER_VERSION} \
+            nvidia-driver-NvFBCOpenGL-${NVIDIA_DRIVER_VERSION} \
+            nvidia-driver-cuda-${NVIDIA_DRIVER_VERSION} \
+            nvidia-driver-cuda-libs-${NVIDIA_DRIVER_VERSION} \
+            nvidia-driver-devel-${NVIDIA_DRIVER_VERSION} \
+            nvidia-driver-libs-${NVIDIA_DRIVER_VERSION} \
+            nvidia-kmod-common-${NVIDIA_DRIVER_VERSION} \
+            nvidia-libXNVCtrl-${NVIDIA_DRIVER_VERSION} \
+            nvidia-libXNVCtrl-devel-${NVIDIA_DRIVER_VERSION} \
+            nvidia-modprobe-${NVIDIA_DRIVER_VERSION} \
+            nvidia-persistenced-${NVIDIA_DRIVER_VERSION} \
+            nvidia-settings-${NVIDIA_DRIVER_VERSION} \
+            nvidia-xconfig-${NVIDIA_DRIVER_VERSION}
+    else
+        # This will use the default stream
+        dnf -q -y dnf install kernel-modules
+        dnf -q -y update kernel kernel-core kernel-modules-core kernel-modules
+        dnf -q -y module install nvidia-driver:${NVIDIA_DRIVER_BRANCH}
+    fi
 fi
 
 # Configure the settings for nvidia-container-runtime
