@@ -73,4 +73,4 @@ RUN wget https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC
     unzip protoc-${PROTOC_VERSION}-linux-${PROTOC_ARCH}.zip -d /usr/local && rm -f protoc-${PROTOC_VERSION}-linux-${PROTOC_ARCH}.zip
 
 WORKDIR /src
-ENV=GOPATH /src
+ENV GOPATH=/src
