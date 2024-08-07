@@ -99,6 +99,7 @@ OPTIONS=-listen 0.0.0.0:${FORWARDER_PORT}
 END
 fi
 
+
 # Disable unnecessary systemd services
 
 case $PODVM_DISTRO in
@@ -118,4 +119,48 @@ case $PODVM_DISTRO in
         ;;
 esac
 
+if [ "$PODVM_DISTRO" == "rhel" ]; then
+    local modules=(
+        ansible
+        bootcmd
+        ca-certs
+        chef
+        disk-setup
+        growpart
+        keys-to-console
+        mcollective
+        mounts
+        package-update-upgrade-install
+        puppet
+        reset-rmc
+        resizefs
+        rightscale-userdata
+        rsyslog
+        runcmd
+        salt-minion
+        scripts-per_boot
+        scripts-per-instance
+        scripts-per-once
+        scripts-user
+        scripts-vendor
+        seed-random
+        set-passwords
+        spacewalk
+        ssh
+        ssh-authkey-fingerprints
+        ssh-import-id
+        update-etc-hosts
+        users-groups
+        write-files
+        write-files-deferred
+        yum-add-repo
+    )
+    cp /etc/cloud/cloud.cfg /etc/cloud/cloud.cfg.original
+    for MOD in "${modules[@]}" ; do
+        sed -i -E "s/(\ *- $MOD).*/#\1/" /etc/cloud/cloud.cfg
+        MOD_L=$(echo $MOD | sed 's/-/_/g')
+        sed -i -E "s/(\ *- ${MOD_L}).*/#\1/" /etc/cloud/cloud.cfg
+    done
+    cat /etc/cloud/cloud.cfg
+fi
 exit 0
