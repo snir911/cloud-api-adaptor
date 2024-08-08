@@ -123,37 +123,37 @@ if [ "$PODVM_DISTRO" == "rhel" ]; then
     local modules=(
         ansible
         bootcmd
-        ca_certs
+        ca-certs
         chef
-        disk_setup
+        disk-setup
         growpart
-        keys_to_console
+        keys-to-console
         mcollective
         mounts
-        package_update_upgrade_install
+        package-update-upgrade-install
         puppet
-        reset_rmc
+        reset-rmc
         resizefs
         rightscale_userdata
         rsyslog
         runcmd
-        salt_minion
-        scripts_per_boot
-        scripts_per_instance
-        scripts_per_once
-        scripts_user
-        scripts_vendor
+        salt-minion
+        scripts-per_boot
+        scripts-per-instance
+        scripts-per-once
+        scripts-user
+        scripts-vendor
         seed_random
         set_passwords
         spacewalk
         ssh
-        ssh_authkey_fingerprints
-        ssh_import_id
-        update_etc_hosts
-        users_groups
-        write_files
-        write_files_deferred
-        yum_add_repo
+        ssh-authkey-fingerprints
+        ssh-import-id
+        update-etc-hosts
+        users-groups
+        write-files
+        write-files-deferred
+        yum-add-repo
     )
     cp /etc/cloud/cloud.cfg /etc/cloud/cloud.cfg.original
     for MOD in "${modules[@]}" ; do
