@@ -123,13 +123,13 @@ if [ "$PODVM_DISTRO" == "rhel" ]; then
     local modules=(
         ansible
         bootcmd
-        #ca_certs
+        ca_certs
         chef
         disk_setup
         growpart
         keys_to_console
         mcollective
-        #mounts
+        mounts
         package_update_upgrade_install
         puppet
         reset_rmc
