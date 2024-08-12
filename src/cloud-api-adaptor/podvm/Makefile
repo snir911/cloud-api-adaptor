@@ -31,12 +31,16 @@ UEFI_FIRMWARE_LOCATION ?=
 
 SE_BOOT ?= 0
 
+image-debug: DEBUG=true
+
 # Env variable for default qemu builder options across distros/arch
 PACKER_DEFAULT_OPTS ?= -var qemu_image_name=${IMAGE_FILE} \
 	-var cloud_image_url=${IMAGE_URL} \
 	-var cloud_image_checksum=${IMAGE_CHECKSUM}
 
 image: $(IMAGE_FILE)
+
+image-debug: image
 
 setopts:
 ifeq ($(PODVM_DISTRO),ubuntu)
@@ -78,6 +82,9 @@ endif
 endif
 
 $(IMAGE_FILE): $(BINARIES) $(FILES) setopts
+ifdef DEBUG
+	rm -f "$(FILES_DIR)/etc/cloud/cloud.cfg.d/99_allowed_modules.cfg"
+endif
 	rm -fr output
 	rm -f cloud-init.img
 	cloud-localds cloud-init.img qcow2/userdata.cfg
