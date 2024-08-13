@@ -6,7 +6,7 @@ SELF_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
 
 include $(SELF_DIR)Makefile.inc
 
-.PHONY: image clean clean_sources
+.PHONY: image image-debug clean clean_sources
 
 IMAGE_SUFFIX := .qcow2
 PODVM_DISTRO ?= ubuntu
@@ -31,7 +31,6 @@ UEFI_FIRMWARE_LOCATION ?=
 
 SE_BOOT ?= 0
 
-image-debug: DEBUG=true
 
 # Env variable for default qemu builder options across distros/arch
 PACKER_DEFAULT_OPTS ?= -var qemu_image_name=${IMAGE_FILE} \
@@ -40,6 +39,7 @@ PACKER_DEFAULT_OPTS ?= -var qemu_image_name=${IMAGE_FILE} \
 
 image: $(IMAGE_FILE)
 
+image-debug: DEBUG=true
 image-debug: image
 
 setopts:
@@ -81,10 +81,7 @@ ifdef UEFI_FIRMWARE_LOCATION
 endif
 endif
 
-$(IMAGE_FILE): $(BINARIES) $(FILES) setopts
-ifdef DEBUG
-	rm -f "$(FILES_DIR)/etc/cloud/cloud.cfg.d/99_allowed_modules.cfg"
-endif
+$(IMAGE_FILE): prepare $(BINARIES) $(FILES) setopts
 	rm -fr output
 	rm -f cloud-init.img
 	cloud-localds cloud-init.img qcow2/userdata.cfg
