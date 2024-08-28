@@ -2,12 +2,68 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-# Place pod vm image built via mkosi
+# Builds pod vm image inside container
 #
-FROM scratch
+ARG BUILDER_IMG
+ARG BINARIES_IMG
 
-ARG ARCH=s390x
+FROM ${BINARIES_IMG} AS podvm_binaries
+FROM ${BUILDER_IMG} AS podvm_builder
 
+ARG CLOUD_PROVIDER
+ARG PODVM_DISTRO=fedora
+ARG UEFI=true
+ARG ENABLE_NVIDIA_GPU=yes
+
+# If not provided, uses system architecture
+ARG ARCH
+ARG CAA_SRC=""
+ARG CAA_SRC_REF=""
+ARG AUTHFILE
+ARG PAUSE_REPO
+ARG PAUSE_VERSION
+ARG PAUSE_BIN
+
+ENV AUTHFILE=${AUTHFILE}
+ENV PAUSE_REPO=${PAUSE_REPO}
+ENV PAUSE_VERSION=${PAUSE_VERSION}
+ENV PAUSE_BIN=${PAUSE_BIN}
+ENV CLOUD_PROVIDER=${CLOUD_PROVIDER}
+ENV PODVM_DISTRO=${PODVM_DISTRO}
 ENV ARCH=${ARCH}
+ENV UEFI=${UEFI}
+ENV ENABLE_NVIDIA_GPU=${ENABLE_NVIDIA_GPU}
 
-COPY build/podvm-*.qcow2 /
+ARG SE_BOOT
+#ARG IMAGE_URL
+#ARG IMAGE_CHECKSUM
+
+#ADD ${IMAGE_URL} /tmp/fedora.img
+#ENV IMAGE_URL=/tmp/fedora.img
+#ENV IMAGE_CHECKSUM=${IMAGE_CHECKSUM}
+
+ENV SE_BOOT=${SE_BOOT}
+# workaround to ensure hashicorp packer is called instead
+# of cracklib packer which is installed by default
+ENV PATH="/usr/bin:${PATH}"
+
+# Copy the binaries to podvm/files folder
+COPY --from=podvm_binaries /podvm-binaries.tar.gz /src/cloud-api-adaptor/podvm/files/podvm-binaries.tar.gz
+RUN tar xvf /src/cloud-api-adaptor/podvm/files/podvm-binaries.tar.gz -C /src/cloud-api-adaptor/podvm/files
+
+# Copy the pause_bundle to podvm/files folder
+COPY --from=podvm_binaries /pause-bundle.tar.gz /src/cloud-api-adaptor/podvm/files/pause-bundle.tar.gz
+RUN tar xvf /src/cloud-api-adaptor/podvm/files/pause-bundle.tar.gz -C /src/cloud-api-adaptor/podvm/files
+
+COPY . /src
+
+WORKDIR /src/cloud-api-adaptor/podvm
+
+RUN LIBC=gnu make image
+
+# The below instructions can be used if you prefer to rebuild all the binaries
+#RUN make binaries
+#RUN make image
+
+FROM scratch
+COPY --from=podvm_builder /src/cloud-api-adaptor/podvm/output/*.qcow2 /

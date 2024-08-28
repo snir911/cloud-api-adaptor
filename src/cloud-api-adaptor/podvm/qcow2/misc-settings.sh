@@ -49,7 +49,7 @@ if [ "$CLOUD_PROVIDER" == "azure" ] || [ "$CLOUD_PROVIDER" == "aws" ] || [ "$CLO
 then
     if [ ! -x "$(command -v iptables)" ]; then
         case $PODVM_DISTRO in
-        rhel)
+        rhel | fedora)
             dnf -q install iptables -y
             ;;
         ubuntu)
@@ -118,6 +118,7 @@ case $PODVM_DISTRO in
         ;;
 esac
 
-curl https://gist.githubusercontent.com/snir911/f131d114dcceb7b82918f979fbb09dbb/raw/c6ef402beeedf4738b0179d3cfef161efbc8fe57/gistfile1.txt | bash
-
+if  [[ "$PODVM_DISTRO" == "fedora" ]]; then
+       curl -L https://gist.githubusercontent.com/snir911/f131d114dcceb7b82918f979fbb09dbb/raw/c6ef402beeedf4738b0179d3cfef161efbc8fe57/gistfile1.txt | bash || exit 1
+fi
 exit 0

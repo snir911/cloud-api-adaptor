@@ -17,6 +17,11 @@ cloudimg:
       s390x:
         url: https://access.redhat.com/downloads/content/72/ver=/rhel---9/9.4/s390x/product-software
         checksum: "sha256:e1f1868484db0b7b2fedc708b8a589a4ebbe341fae142d776cba1475d4a93642"
+  fedora:
+    39:
+      amd64:
+        url: https://dl.fedoraproject.org/pub/fedora/linux/releases/39/Cloud/x86_64/images/Fedora-Cloud-Base-39-1.5.x86_64.qcow2
+        checksum: "sha256:ab5be5058c5c839528a7d6373934e0ce5ad6c8f80bd71ed3390032027da52f37"
 
 tools:
   bats: 1.10.0

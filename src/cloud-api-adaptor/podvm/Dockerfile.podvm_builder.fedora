@@ -19,10 +19,10 @@ ARG YQ_VERSION="v4.35.1"
 # s390x: YQ_CHECKSUM="sha256:4e6324d08630e7df733894a11830412a43703682d65a76f1fc925aac08268a45"
 ARG YQ_CHECKSUM="sha256:bd695a6513f1196aeda17b174a15e9c351843fb1cef5f9be0af170f2dd744f08"
 
-RUN dnf groupinstall -y 'Development Tools' && \
-    dnf install -y yum-utils gnupg git perl-core pkg-config libseccomp-devel gpgme-devel \
+RUN dnf groupinstall -y 'Development Tools' && dnf install 'dnf-command(config-manager)' -y && dnf config-manager --add-repo https://rpm.releases.hashicorp.com/fedora/hashicorp.repo && \
+    dnf install -y yum-utils gnupg git perl-core pkg-config libseccomp-devel gpgme-devel qemu-system-x86-core \
     device-mapper-devel unzip libassuan-devel \
-    perl-FindBin openssl-devel tpm2-tss-devel \
+    perl-FindBin openssl-devel tpm2-tss-devel cloud-utils packer \
     clang which && \
     dnf clean all
 

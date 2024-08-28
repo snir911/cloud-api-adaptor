@@ -49,7 +49,7 @@ ifndef QEMU_BINARY
 endif
 
 endif
-else ifeq ($(PODVM_DISTRO),rhel)
+else ifneq (,$(filter $(PODVM_DISTRO),fedora rhel))
 	@echo defined
 	$(eval OPTS := -var disk_size=11144)
 ifeq ($(ARCH),s390x)

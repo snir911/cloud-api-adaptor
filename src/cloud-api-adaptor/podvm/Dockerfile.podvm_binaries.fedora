@@ -49,5 +49,9 @@ WORKDIR /src/cloud-api-adaptor/podvm
 
 RUN LIBC=gnu make binaries
 
-FROM scratch
-COPY --from=podvm_builder /src/cloud-api-adaptor/podvm/files /
+RUN tar czvf /podvm-binaries.tar.gz -C /src/cloud-api-adaptor/podvm/files usr/ etc/
+RUN tar czvf /pause-bundle.tar.gz -C /src/cloud-api-adaptor/podvm/files pause_bundle/
+
+FROM registry.fedoraproject.org/fedora-minimal:39
+COPY --from=podvm_builder /podvm-binaries.tar.gz /
+COPY --from=podvm_builder /pause-bundle.tar.gz /
