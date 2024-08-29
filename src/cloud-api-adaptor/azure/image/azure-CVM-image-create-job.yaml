@@ -89,7 +89,21 @@ spec:
           tar -xf /payload/image.tar -C /payload/ && ls -l /payload && rm -f /payload/image.tar && mv /payload/*.qcow2 /payload/podvm.qcow2
           rpm --import https://packages.microsoft.com/keys/microsoft.asc
           dnf install -y https://packages.microsoft.com/config/fedora/39/packages-microsoft-prod.rpm
-          yum install -y azure-cli qemu-img
+          yum install -y azure-cli qemu-img kubernetes-client
+          # fetch cm values
+          export PODVM_PROVIDER="azure"
+          export AZURE_REGION=$(curl -s -m 15 -H Metadata:true --noproxy "*" "http://169.254.169.254/metadata/instance/compute/location?api-version=2017-08-01&format=text")
+          export AZURE_RESOURCE_GROUP=$(curl -s -m 15 -H Metadata:true --noproxy "*" "http://169.254.169.254/metadata/instance/compute/resourceGroupName?api-version=2017-08-01&format=text")
+          export AZURE_SUBSCRIPTION_ID=$(curl -s -m 15 -H Metadata:true --noproxy "*" "http://169.254.169.254/metadata/instance/compute/subscriptionId?api-version=2017-08-01&format=text")
+          export AZURE_SUBNET_ID="/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${AZURE_RESOURCE_GROUP}/providers/Microsoft.Network/virtualNetworks/${AZURE_RESOURCE_GROUP%-rg}-vnet/subnets/${AZURE_RESOURCE_GROUP%-rg}-worker-subnet"
+          export AZURE_NSG_ID="/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${AZURE_RESOURCE_GROUP}/providers/Microsoft.Network/networkSecurityGroups/${AZURE_RESOURCE_GROUP%-rg}-nsg"
+          export VXLAN_PORT=${VXLAN_PORT:-9000}
+          export PROXY_TIMEOUT=${PROXY_TIMEOUT:-5m}
+          export DISABLECVM=${DISABLECVM:-false}
+          export AZURE_INSTANCE_SIZE=${AZURE_INSTANCE_SIZE:-Standard_NCC40ads_H100_v5}
+          export AZURE_INSTANCE_SIZES=${AZURE_INSTANCE_SIZES:-Standard_NCC40ads_H100_v5}
+          export AZURE_IMAGE_ID=${AZURE_IMAGE_ID}
+
           export PATH="/usr/bin:/usr/local/bin:${PATH}"
           [[ ! "${AZURE_REGION}" ]] && echo "AZURE_REGION is missing" && exit 1
           [[ ! "${AZURE_TENANT_ID}" ]] && echo "AZURE_TENANT_ID is missing" && exit 1
@@ -132,5 +146,24 @@ spec:
           
           AZURE_IMAGE_ID=$(az sig image-version list --resource-group $AZURE_RESOURCE_GROUP --gallery-name ${GALLERY_NAME} --gallery-image-definition ${GALLERY_IMAGE_NAME} --query "[].{Id: id}" --output tsv)
           echo "DONE: ${AZURE_IMAGE_ID}"
+          echo "create ConfigMap for Confidential H100 instnace!!!"
+          cat <<EOF >> /tmp/cm.env
+          PODVM_PROVIDER=${PODVM_PROVIDER}
+          AZURE_REGION=${AZURE_REGION}
+          AZURE_RESOURCE_GROUP=${AZURE_RESOURCE_GROUP}
+          AZURE_SUBSCRIPTION_ID=${AZURE_SUBSCRIPTION_ID}
+          AZURE_SUBNET_ID=${AZURE_SUBNET_ID}
+          AZURE_NSG_ID=${AZURE_NSG_ID}
+          VXLAN_PORT=${VXLAN_PORT}
+          PROXY_TIMEOUT=${PROXY_TIMEOUT}
+          DISABLECVM="false"
+          AZURE_INSTANCE_SIZE="Standard_NCC40ads_H100_v5"
+          AZURE_INSTANCE_SIZES="Standard_NCC40ads_H100_v5"
+          AZURE_IMAGE_ID=${AZURE_IMAGE_ID}
+          EOF
+          cat /tmp/cm.env
+          kubectl delete cm peer-pods-cm -n openshift-sandboxed-containers-operator || true
+          kubectl create cm peer-pods-cm --from-env-file=/tmp/cm.env -n openshift-sandboxed-containers-operator
+
 
       restartPolicy: Never

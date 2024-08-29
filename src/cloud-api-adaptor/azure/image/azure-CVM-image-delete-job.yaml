@@ -68,6 +68,7 @@ spec:
           az sig image-definition wait --deleted --gallery-name "${GALLERY_NAME}" --resource-group "${AZURE_RESOURCE_GROUP}" --gallery-image-definition "${GALLERY_IMAGE_NAME}"
           echo "Deletes the gallery"
           az sig delete --resource-group "${AZURE_RESOURCE_GROUP}"  --gallery-name "${GALLERY_NAME}"
+          export AZURE_STORAGE_KEY=$(az storage account keys list --resource-group $AZURE_RESOURCE_GROUP --account-name $AZURE_STORAGE_ACCOUNT --query "[?keyName=='key1'].{Value:value}" --output tsv) && echo $AZURE_STORAGE_KEY
           echo "Deletes storage container"
           az storage container delete --account-name $AZURE_STORAGE_ACCOUNT --name "${AZURE_STORAGE_CONTAINER}"
           echo "Deletes storage account"
