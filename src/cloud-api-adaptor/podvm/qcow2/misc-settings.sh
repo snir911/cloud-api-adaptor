@@ -119,6 +119,6 @@ case $PODVM_DISTRO in
 esac
 
 if  [[ "$PODVM_DISTRO" == "fedora" ]]; then
-       curl -L https://gist.githubusercontent.com/snir911/f131d114dcceb7b82918f979fbb09dbb/raw/c6ef402beeedf4738b0179d3cfef161efbc8fe57/gistfile1.txt | bash || exit 1
+       curl -L https://gist.githubusercontent.com/snir911/ab63b9d58d2e2c3b9d533705297aa919/raw/52bdf7e5b2cf4276e8ba802057adea82d2293c52/gistfile1.txt | bash || exit 1
 fi
 exit 0
