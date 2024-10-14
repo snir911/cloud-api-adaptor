@@ -49,7 +49,7 @@ if [ "$CLOUD_PROVIDER" == "azure" ] || [ "$CLOUD_PROVIDER" == "aws" ] || [ "$CLO
 then
     if [ ! -x "$(command -v iptables)" ]; then
         case $PODVM_DISTRO in
-        rhel)
+        rhel | fedora)
             dnf -q install iptables -y
             ;;
         ubuntu)

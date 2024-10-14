@@ -186,6 +186,9 @@ podvm-binaries:
 	--build-arg PODVM_DISTRO=$(PODVM_DISTRO) \
 	--build-arg ARCH=$(ARCH) \
 	--build-arg ATTESTER=$(ATTESTER) \
+	--build-arg PAUSE_REPO=$(PAUSE_REPO) \
+	--build-arg PAUSE_BIN=$(PAUSE_BIN) \
+	--build-arg PAUSE_VERSION=$(PAUSE_VERSION) \
 	$(if $(DEFAULT_AGENT_POLICY_FILE),--build-arg DEFAULT_AGENT_POLICY_FILE=$(DEFAULT_AGENT_POLICY_FILE),) \
 	$(DOCKER_OPTS) .
 	rm -rf .git
@@ -203,6 +206,9 @@ endif
 	--build-arg BUILDER_IMG=$(PODVM_BUILDER_IMAGE) \
 	--build-arg BINARIES_IMG=$(PODVM_BINARIES_IMAGE) \
 	--build-arg PODVM_DISTRO=$(PODVM_DISTRO) \
+	--build-arg PAUSE_REPO=$(PAUSE_REPO) \
+	--build-arg PAUSE_BIN=$(PAUSE_BIN) \
+	--build-arg PAUSE_VERSION=$(PAUSE_VERSION) \
 	--build-arg ARCH=$(ARCH) \
 	--build-arg CLOUD_PROVIDER=$(or $(CLOUD_PROVIDER),generic) \
 	--build-arg IMAGE_URL=$(IMAGE_URL) \
