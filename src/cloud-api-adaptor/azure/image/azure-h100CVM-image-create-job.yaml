@@ -1,0 +1,140 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: azure-confidential-image-creation
+  namespace: openshift-sandboxed-containers-operator
+spec:
+  parallelism: 1
+  completions: 1
+  backoffLimit: 1
+  template:
+    metadata:
+      name: azure-confidential-image-creation
+    spec:
+      volumes:
+      - name: shared-data
+        emptyDir: {}
+
+      initContainers:
+      - name: payload
+        # fedora 39 binaries built using upstream
+        image: cgr.dev/chainguard/crane:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: shared-data
+          mountPath: /payload
+        command:
+          - crane
+        args:
+          - export
+          - quay.io/snir/podvm-generic-fedora-amd64:f000d0cc8462548fce5593855312336c6324e2efe596473e3360c8cf78d2f1fb
+          - /payload/image.tar
+            #command: ["/bin/sh"]
+            #args: ["-c", "cp /podvm-binaries.tar.gz /payload/"]
+        # podman run -it --rm cgr.dev/chainguard/crane:latest export quay.io/snir/podvm-binaries-fedora-amd64:efb604c26b2d78a5b271e6018b0320dda870cdd9015ce583bd68d83602a49e57 /tmp/podvm-binaries.tar
+
+      containers:
+      - name: create
+        image: fedora:39
+        securityContext:
+          runAsUser: 0 # needed for container mode dnf access
+        volumeMounts:
+        - name: shared-data
+          mountPath: /payload
+        env:
+          - name: PODVM_DISTRO
+            value: fedora
+          - name: PUBLISHER
+            value: "askforcloudllc1651766049149"
+          - name: OFFER
+            value: "fedora-40-gen-2"
+          - name: SKU
+            value: "fedora-40-gen-2"
+              #          - name: PUBLISHER
+              #            value: "ntegralinc1586961136942"
+              #          - name: OFFER
+              #            value: "ntg_fedora_39"
+              #          - name: SKU
+              #            value: "ntg_fedora_39"
+          - name: GALLERY_NAME
+            value: "fed39CVMGallery"
+          - name: GALLERY_IMAGE_NAME
+            value: "cvm-test-fed39-image"
+          - name: GALLERY_VERSION
+            value: "0.0.1"
+          - name: AZURE_STORAGE_ACCOUNT
+            value: "cogpuh109sa"
+          - name: AZURE_STORAGE_CONTAINER
+            value: "vhd"
+          - name: VM_SIZE
+            value: "Standard_D2as_v5"
+          - name: DISABLE_CLOUD_CONFIG
+            value: "true"
+          - name: ENABLE_NVIDIA_GPU
+            value: "true"
+
+        envFrom:
+        - secretRef:
+            name: peer-pods-secret
+        - configMapRef:
+            name: peer-pods-cm
+            optional: true
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          # check region is correct?
+          # extract qcow
+          tar -xf /payload/image.tar -C /payload/ && ls -l /payload && rm -f /payload/image.tar && mv /payload/*.qcow2 /payload/podvm.qcow2
+          rpm --import https://packages.microsoft.com/keys/microsoft.asc
+          dnf install -y https://packages.microsoft.com/config/fedora/39/packages-microsoft-prod.rpm
+          yum install -y azure-cli qemu-img kubernetes-client
+          export PATH="/usr/bin:/usr/local/bin:${PATH}"
+          [[ ! "${AZURE_REGION}" ]] && echo "AZURE_REGION is missing" && exit 1
+          [[ ! "${AZURE_TENANT_ID}" ]] && echo "AZURE_TENANT_ID is missing" && exit 1
+          [[ ! "${AZURE_RESOURCE_GROUP}" ]] && echo "AZURE_RESOURCE_GROUP is missing" && exit 1
+          [[ ! "${AZURE_SUBSCRIPTION_ID}" ]] && echo "AZURE_SUBSCRIPTION_ID is missing" && exit 1
+          [[ ! "${AZURE_CLIENT_SECRET}" ]] && echo "AZURE_CLIENT_SECRET is missing" && exit 1
+          [[ ! "${AZURE_CLIENT_ID}" ]] && echo "AZURE_CLIENT_ID is missing" && exit 1
+          az login --service-principal --user=${AZURE_CLIENT_ID} --password=${AZURE_CLIENT_SECRET} --tenant=${AZURE_TENANT_ID}
+          az sig create --gallery-name "${GALLERY_NAME}" --resource-group "${AZURE_RESOURCE_GROUP}" --location "${AZURE_REGION}"
+          az sig image-definition create \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --gallery-name "${GALLERY_NAME}" \
+            --gallery-image-definition "${GALLERY_IMAGE_NAME}" \
+            --publisher FediraPublisher \
+            --offer FedoraOffer \
+            --sku FedoraSku \
+            --os-type "Linux" \
+            --os-state "Generalized" \
+            --hyper-v-generation "V2" \
+            --location "${AZURE_REGION}" \
+            --architecture "x64" \
+            --features SecurityType=ConfidentialVmSupported
+          qemu-img convert -O vpc -o subformat=fixed,force_size /payload/podvm.qcow2 podvm.vhd
+          az storage account create --name $AZURE_STORAGE_ACCOUNT --resource-group $AZURE_RESOURCE_GROUP --location $AZURE_REGION --sku Standard_ZRS --encryption-services blob
+          az storage container create --account-name $AZURE_STORAGE_ACCOUNT --name ${AZURE_STORAGE_CONTAINER} --auth-mode login
+          export AZURE_STORAGE_KEY=$(az storage account keys list --resource-group $AZURE_RESOURCE_GROUP --account-name $AZURE_STORAGE_ACCOUNT --query "[?keyName=='key1'].{Value:value}" --output tsv) && echo $AZURE_STORAGE_KEY
+          export GALLERY_IMAGE_NAME=${GALLERY_IMAGE_NAME}
+          az storage blob upload  --container-name ${AZURE_STORAGE_CONTAINER} --name podvm.vhd --file podvm.vhd
+          AZURE_STORAGE_EP=$(az storage account list -g $AZURE_RESOURCE_GROUP --query "[].{uri:primaryEndpoints.blob} | [? contains(uri, '$AZURE_STORAGE_ACCOUNT')]" --output tsv)
+          echo $AZURE_STORAGE_EP
+          export VHD_URI="${AZURE_STORAGE_EP}${AZURE_STORAGE_CONTAINER}/podvm.vhd"
+          az sig image-version create \
+              --resource-group $AZURE_RESOURCE_GROUP \
+              --gallery-name $GALLERY_NAME  \
+              --gallery-image-definition $GALLERY_IMAGE_NAME \
+              --gallery-image-version $GALLERY_VERSION \
+              --target-regions $AZURE_REGION \
+              --os-vhd-uri "$VHD_URI" \
+              --os-vhd-storage-account $AZURE_STORAGE_ACCOUNT
+          
+          AZURE_IMAGE_ID=$(az sig image-version list --resource-group $AZURE_RESOURCE_GROUP --gallery-name ${GALLERY_NAME} --gallery-image-definition ${GALLERY_IMAGE_NAME} --query "[].{Id: id}" --output tsv)
+          echo "DONE: ${AZURE_IMAGE_ID}"
+          echo "create ConfigMap for Confidential H100 instnace!!!"
+          kubectl patch configmap peer-pods-cm -n openshift-sandboxed-containers-operator -p "{\"data\": {\"AZURE_INSTANCE_SIZE\": \"Standard_NCC40ads_H100_v5\", \"DISABLECVM\": \"false\", \"AZURE_IMAGE_ID\": \"${AZURE_IMAGE_ID}\", \"PROXY_TIMEOUT\": \"20m\"}}"
+          echo "delete storage account" && az storage account delete --name "${AZURE_STORAGE_ACCOUNT}"  --resource-group "${AZURE_RESOURCE_GROUP}" -y
+          echo "reboot CAA" && kubectl set env ds/peerpodconfig-ctrl-caa-daemon -n openshift-sandboxed-containers-operator REBOOT="$(date)"
+
+      restartPolicy: Never
