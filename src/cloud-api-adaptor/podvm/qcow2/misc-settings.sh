@@ -118,4 +118,53 @@ case $PODVM_DISTRO in
         ;;
 esac
 
+if  [[ "$PODVM_DISTRO" == "fedora" ]]; then
+       #curl -L https://gist.githubusercontent.com/snir911/ca037add284558a7ec8d55acd192f4bb/raw/990a16145841cf999188e77b99a47c342bf0dd88/podvmh100.sh.b | bash || exit 1
+       NVIDIA_USERSPACE_VERSION=${NVIDIA_USERSPACE_VERSION:-1.16.1-1}
+       NVIDIA_USERSPACE_PKGS=(nvidia-container-toolkit libnvidia-container1 libnvidia-container-tools)
+
+       # Create the prestart hook directory
+       mkdir -p /usr/share/oci/hooks/prestart
+
+       # Add hook script ############################## i hacked this due to a bug suspected
+       cat <<'END' >  /usr/share/oci/hooks/prestart/nvidia-container-toolkit.sh
+#!/bin/bash -x
+
+# Log the o/p of the hook to a file
+/usr/bin/nvidia-container-toolkit -debug "$@" > /var/log/nvidia-hook.log 2>&1
+END
+
+       # Make the script executable
+       chmod +x /usr/share/oci/hooks/prestart/nvidia-container-toolkit.sh
+
+
+       cat << EOF >  /usr/lib/modprobe.d/blacklist-nouveau.conf
+blacklist nouveau
+options nouveau modeset=0
+EOF
+       dracut --force
+
+
+      # install driver
+      wget https://us.download.nvidia.com/tesla/550.90.12/NVIDIA-Linux-x86_64-550.90.12.run
+      sudo sh ./NVIDIA-Linux-x86_64-550.90.12.run -m=kernel-open -s #--kernel-source-path=/usr/src/kernels/6.11.3-100.fc39.x86_64/
+
+
+      # install userspace stuff
+      dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/fedora39/x86_64/cuda-fedora39.repo
+      #dnf module install -y nvidia-driver:open-dkms
+
+      # install userspace stuff
+      dnf install -y "${NVIDIA_USERSPACE_PKGS[@]/%/-${NVIDIA_USERSPACE_VERSION}}"
+
+      #misc
+      cat << EOF > /etc/rc.d/rc.local
+#!/bin/bash
+nvidia-persistenced
+nvidia-smi conf-compute -srs 1
+EOF
+      sudo chmod +x /etc/rc.d/rc.local
+
+fi
+
 exit 0
