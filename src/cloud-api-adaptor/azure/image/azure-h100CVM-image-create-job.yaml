@@ -27,7 +27,7 @@ spec:
           - crane
         args:
           - export
-          - quay.io/snir/podvm-generic-fedora-amd64:f000d0cc8462548fce5593855312336c6324e2efe596473e3360c8cf78d2f1fb
+          - quay.io/snir/podvm-generic-fedora-amd64:6241e117e2476e1ca7f2ca2712654a0eb86dac8c00bc53e35e9d7ff14755f22b
           - /payload/image.tar
             #command: ["/bin/sh"]
             #args: ["-c", "cp /podvm-binaries.tar.gz /payload/"]
@@ -44,26 +44,14 @@ spec:
         env:
           - name: PODVM_DISTRO
             value: fedora
-          - name: PUBLISHER
-            value: "askforcloudllc1651766049149"
-          - name: OFFER
-            value: "fedora-40-gen-2"
-          - name: SKU
-            value: "fedora-40-gen-2"
-              #          - name: PUBLISHER
-              #            value: "ntegralinc1586961136942"
-              #          - name: OFFER
-              #            value: "ntg_fedora_39"
-              #          - name: SKU
-              #            value: "ntg_fedora_39"
-          - name: GALLERY_NAME
-            value: "fed39CVMGallery"
+#          - name: GALLERY_NAME
+#            value: "fed39CVMGallery"
           - name: GALLERY_IMAGE_NAME
             value: "cvm-test-fed39-image"
           - name: GALLERY_VERSION
             value: "0.0.1"
-          - name: AZURE_STORAGE_ACCOUNT
-            value: "cogpuh109sa"
+#          - name: AZURE_STORAGE_ACCOUNT
+#            value: "cogpuh109sa"
           - name: AZURE_STORAGE_CONTAINER
             value: "vhd"
           - name: VM_SIZE
@@ -85,7 +73,11 @@ spec:
         - |
           set -e
           # check region is correct?
-          # extract qcow
+          yum install -y kubernetes-client
+          uid=$(kubectl get infrastructure -n cluster -o jsonpath='{.items[*].metadata.uid}') && export sid=${uid:0:6} && echo $sid
+          export GALLERY_NAME=${sid}_CVMGallery
+          export AZURE_STORAGE_ACCOUNT=${sid}cvmsa
+          echo "GALLERY_NAME: ${GALLERY_NAME}" && echo "AZURE_STORAGE_ACCOUNT:${AZURE_STORAGE_ACCOUNT}"
           tar -xf /payload/image.tar -C /payload/ && ls -l /payload && rm -f /payload/image.tar && mv /payload/*.qcow2 /payload/podvm.qcow2
           rpm --import https://packages.microsoft.com/keys/microsoft.asc
           dnf install -y https://packages.microsoft.com/config/fedora/39/packages-microsoft-prod.rpm
