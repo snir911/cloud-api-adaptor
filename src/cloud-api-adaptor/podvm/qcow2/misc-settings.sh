@@ -165,6 +165,8 @@ nvidia-smi conf-compute -srs 1
 EOF
       sudo chmod +x /etc/rc.d/rc.local
 
+      sed -i 's/^#no-cgroups = false/no-cgroups = true/' /etc/nvidia-container-runtime/config.toml
+      sed -i 's/^SELINUX=.*/SELINUX=disabled/' /etc/selinux/config
 fi
 
 exit 0
