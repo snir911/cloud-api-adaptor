@@ -27,7 +27,7 @@ spec:
           - crane
         args:
           - export
-          - quay.io/snir/podvm-generic-fedora-amd64:6241e117e2476e1ca7f2ca2712654a0eb86dac8c00bc53e35e9d7ff14755f22b
+          - quay.io/snir/podvm-generic-fedora-amd64:test2010
           - /payload/image.tar
             #command: ["/bin/sh"]
             #args: ["-c", "cp /podvm-binaries.tar.gz /payload/"]
