@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: delete
-        image: registry.access.redhat.com/ubi9/ubi:9.3
+        image: fedora:39
         securityContext:
           runAsUser: 0 # needed for container mode dnf access
         env:
@@ -47,8 +47,8 @@ spec:
         - -c
         - |
           set -e
-          yum install -y kubernetes-client
-          uid=$(oc get infrastructure -n cluster -o jsonpath='{.items[*].metadata.uid}') && export sid=${uid:0:6} && echo $sid
+          dnf install -y kubernetes-client
+          uid=$(kubectl get infrastructure -n cluster -o jsonpath='{.items[*].metadata.uid}') && export sid=${uid:0:6} && echo $sid
           export GALLERY_NAME=${sid}_CVMGallery
           export AZURE_STORAGE_ACCOUNT=${sid}cvmsa
           echo "GALLERY_NAME: ${GALLERY_NAME}" && echo "AZURE_STORAGE_ACCOUNT:${AZURE_STORAGE_ACCOUNT}"
