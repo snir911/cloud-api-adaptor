@@ -9,7 +9,7 @@ ARG BUILDER_IMG
 FROM ${BUILDER_IMG} AS podvm_builder
 
 ARG CLOUD_PROVIDER
-ARG PODVM_DISTRO=rhel
+ARG PODVM_DISTRO=fedora
 ARG GUEST_COMPONENTS_VERSION
 ARG GUEST_COMPONENTS_REPO
 # By default AA will be built with the `all-attesters` feature,
@@ -45,6 +45,7 @@ COPY . /src
 
 WORKDIR /src/cloud-api-adaptor/podvm
 
+RUN  cd ../../kata-containers/src/agent/ && cargo update -p krata-tokio-tar && cd -
 RUN LIBC=gnu make binaries
 
 RUN tar czvf /podvm-binaries.tar.gz -C /src/cloud-api-adaptor/podvm/files usr/ etc/
