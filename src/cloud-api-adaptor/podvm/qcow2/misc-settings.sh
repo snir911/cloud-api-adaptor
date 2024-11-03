@@ -126,7 +126,51 @@ if  [[ "$PODVM_DISTRO" == "fedora" ]]; then
        # Create the prestart hook directory
        mkdir -p /usr/share/oci/hooks/prestart
 
-       # Add hook script ############################## i hacked this due to a bug suspected
+       # embed GPU attestation in hook
+       pushd .
+       mkdir /tmp/cgpu
+       cd /tmp/cgpu
+       curl -L https://github.com/Azure/az-cgpu-onboarding/releases/download/V3.0.10/cgpu-h100-auto-onboarding-linux.tar.gz -o cgpu-h100-auto-onboarding-linux.tar.gz
+tar -xOzf cgpu-h100-auto-onboarding-linux.tar.gz cgpu-h100-auto-onboarding-linux/cgpu-onboarding-package.tar.gz | tar -xzf - cgpu-onboarding-package/step-2-attestation.sh cgpu-onboarding-package/local_gpu_verifier.tar
+       cd cgpu-onboarding-package
+       mkdir local_gpu_verifier
+       tar -xvf local_gpu_verifier.tar -C local_gpu_verifier
+       cd local_gpu_verifier
+       sudo dnf install -y python3-pip
+       sudo pip install -U pip
+       sudo pip install -U --ignore-installed requests
+       sudo pip3 install .
+       popd
+       rm -rf /tmp/cgpu
+
+       cat <<'END' >  /usr/local/bin/loghack.sh
+#!/bin/bash
+
+TARGET_BASE_DIR="/kata-containers"
+LOG_FILE="/var/log/gpu-attestation-hook.log"
+
+# Loop through each directory in the base directory that matches a hex ID pattern
+for ((i=0; i<60; i++)); do
+    for dir in "$TARGET_BASE_DIR"/*; do
+        [[ -d "$dir" && "$(basename "$dir")" =~ ^[0-9a-fA-F]+$ ]] && cp "$LOG_FILE" "$dir/rootfs/var/log/"
+    done
+    sleep 2
+done
+END
+       chmod +x /usr/local/bin/loghack.sh
+
+       cat <<'END' >  /usr/share/oci/hooks/prestart/gpu-attestation.sh
+#!/bin/bash -x
+
+# gpu attestation
+if [[ " $@ " =~ " prestart " ]]; then
+  python3 -m verifier.cc_admin  > /var/log/gpu-attestation-hook.log 2>&1
+  nohup /usr/local/bin/loghack.sh & # this passes file to containers
+fi
+END
+       # Make the script executable
+       chmod +x /usr/share/oci/hooks/prestart/gpu-attestation.sh
+
        cat <<'END' >  /usr/share/oci/hooks/prestart/nvidia-container-toolkit.sh
 #!/bin/bash -x
 
