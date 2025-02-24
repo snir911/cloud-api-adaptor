@@ -13,7 +13,16 @@
 # dhcp IP is assigned to the VM
 echo -n | sudo tee /etc/machine-id
 #Lock password for the ssh user (peerpod) to disallow logins
-sudo passwd -l peerpod
+USERNAME="coco"
+PASSWORD="coco"
+if id "$USERNAME" &>/dev/null; then
+    echo "User $USERNAME already exists."
+else
+    sudo useradd -m -s /bin/bash "$USERNAME"
+    echo "$USERNAME:$PASSWORD" | sudo chpasswd
+    echo "User $USERNAME created with password $PASSWORD."
+    sudo usermod -aG wheel $USERNAME
+fi
 
 # install required packages
 if [ "$CLOUD_PROVIDER" == "vsphere" ]
