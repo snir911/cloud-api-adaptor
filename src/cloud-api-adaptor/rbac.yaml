@@ -1,0 +1,26 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pull-fix
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["serviceaccounts"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pull-fix
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: openshift-sandboxed-containers-operator
+roleRef:
+  kind: ClusterRole
+  name: pull-fix
+  apiGroup: rbac.authorization.k8s.io
+---
+
