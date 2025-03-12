@@ -163,7 +163,7 @@ func (p *awsProvider) CreateInstance(ctx context.Context, podName, sandboxID str
 	//Convert userData to base64
 	b64EncData := base64.StdEncoding.EncodeToString([]byte(cloudConfigData))
 
-	instanceType, err := p.selectInstanceType(ctx, spec)
+	instanceType, err := p.serviceConfig.InstanceType, nil
 	if err != nil {
 		return nil, err
 	}

@@ -210,7 +210,7 @@ func (p *azureProvider) CreateInstance(ctx context.Context, podName, sandboxID s
 		return nil, err
 	}
 
-	instanceSize, err := p.selectInstanceType(ctx, spec)
+	instanceSize, err :=  p.serviceConfig.Size, nil
 	if err != nil {
 		return nil, err
 	}
