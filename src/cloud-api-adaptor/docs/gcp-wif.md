@@ -28,7 +28,7 @@ Workload Identity Federation allows your CAA pods to authenticate to GCP without
 - Appropriate GCP IAM permissions to create service accounts and manage IAM policies
 - Project with necessary APIs enabled (Compute Engine, IAM, STS)
 
-## Step 1: Set Up Variables
+## Step 1: Set Up Variables and Check Workload Identity
 
 ```bash
 # GCP Project configuration
@@ -46,16 +46,71 @@ export K8S_SERVICE_ACCOUNT="cloud-api-adaptor"
 export GSA_NAME="cloud-api-adaptor"
 export GSA_EMAIL="${GSA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
-# Workload Identity Pool (using GKE's built-in pool)
-export WORKLOAD_POOL="${PROJECT_ID}.svc.id.goog"
-
-# GKE cluster identifier for WIF audience
-export CLUSTER_LOCATION="${REGION}"  # or specific zone like "us-central1-a"
-export CLUSTER_ID="gke://${PROJECT_ID}/${CLUSTER_LOCATION}/${CLUSTER_NAME}"
-
 echo "Project ID: ${PROJECT_ID}"
 echo "Project Number: ${PROJECT_NUMBER}"
 echo "GSA Email: ${GSA_EMAIL}"
+```
+
+### Check if Workload Identity is Enabled on GKE
+
+```bash
+# Check if your GKE cluster has Workload Identity enabled
+WI_POOL=$(gcloud container clusters describe ${CLUSTER_NAME} \
+  --region=${REGION} \
+  --project=${PROJECT_ID} \
+  --format="value(workloadIdentityConfig.workloadPool)")
+
+if [ -n "${WI_POOL}" ]; then
+  echo "✓ Workload Identity is enabled"
+  echo "  Workload Pool: ${WI_POOL}"
+  export WORKLOAD_POOL="${WI_POOL}"
+  export CLUSTER_ID="gke://${PROJECT_ID}/${REGION}/${CLUSTER_NAME}"
+else
+  echo "✗ Workload Identity is NOT enabled on this cluster"
+  echo "  See 'Enabling Workload Identity on GKE' section below"
+fi
+```
+
+**If Workload Identity is NOT enabled**, you have two options:
+1. Enable it on your GKE cluster (see section below) - **Recommended**
+2. Create a manual workload identity pool (see "Self-Managed Kubernetes" section)
+
+### Enabling Workload Identity on GKE
+
+If the check above shows Workload Identity is not enabled, enable it:
+
+```bash
+# Enable Workload Identity on the cluster
+gcloud container clusters update ${CLUSTER_NAME} \
+  --region=${REGION} \
+  --project=${PROJECT_ID} \
+  --workload-pool=${PROJECT_ID}.svc.id.goog
+
+# Update your node pool to use Workload Identity metadata
+# (Find your node pool name first)
+gcloud container node-pools list \
+  --cluster=${CLUSTER_NAME} \
+  --region=${REGION} \
+  --project=${PROJECT_ID}
+
+# Update each node pool
+export NODE_POOL="default-pool"  # replace with your actual node pool name
+
+gcloud container node-pools update ${NODE_POOL} \
+  --cluster=${CLUSTER_NAME} \
+  --region=${REGION} \
+  --project=${PROJECT_ID} \
+  --workload-metadata=GKE_METADATA
+```
+
+**⚠️ Warning**: Updating node pools will cause node recreation and pod restarts!
+
+After enabling, set the variables:
+
+```bash
+export WORKLOAD_POOL="${PROJECT_ID}.svc.id.goog"
+export CLUSTER_ID="gke://${PROJECT_ID}/${REGION}/${CLUSTER_NAME}"
+
 echo "Workload Pool: ${WORKLOAD_POOL}"
 echo "Cluster ID: ${CLUSTER_ID}"
 ```
