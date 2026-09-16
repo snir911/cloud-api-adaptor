@@ -10,7 +10,9 @@ Workload Identity Federation allows your CAA pods to authenticate to GCP without
 >
 > GKE's standard Workload Identity uses a metadata server proxy to provide credentials. However, when CAA runs with `hostNetwork: true` (required for pod-VM tunneling), the pod **bypasses the proxy** and reads the node's service account from the GCE metadata server instead.
 >
-> Direct WIF solves this by using GCP's `identitynamespace` pattern to exchange Kubernetes service account tokens for GCP credentials via the Security Token Service (STS), without relying on the metadata server.
+> Direct WIF solves this by creating a custom Workload Identity Pool and OIDC provider that exchanges Kubernetes service account tokens for GCP credentials via the Security Token Service (STS), without relying on the metadata server.
+>
+> **Important**: This implementation uses a **custom workload identity pool**, not GKE's built-in `PROJECT_ID.svc.id.goog` pool, because the built-in pool only works with the metadata server (which `hostNetwork: true` bypasses).
 
 ## Benefits
 
@@ -123,7 +125,47 @@ gcloud services enable \
   iam.googleapis.com \
   iamcredentials.googleapis.com \
   sts.googleapis.com \
+  container.googleapis.com \
   --project=${PROJECT_ID}
+```
+
+## Step 2b: Create Custom Workload Identity Pool
+
+For direct WIF with `hostNetwork: true`, we need to create a custom workload identity pool and OIDC provider:
+
+```bash
+# Create the workload identity pool
+gcloud iam workload-identity-pools create caa-direct-wif-pool \
+  --project=${PROJECT_ID} \
+  --location=global \
+  --display-name="CAA Direct WIF Pool" \
+  --description="Workload Identity pool for cloud-api-adaptor with hostNetwork true"
+
+# Construct the GKE OIDC issuer URL
+OIDC_ISSUER="https://container.googleapis.com/v1/projects/${PROJECT_ID}/locations/${CLUSTER_LOCATION}/clusters/${CLUSTER_NAME}"
+
+echo "OIDC Issuer: ${OIDC_ISSUER}"
+
+# Create OIDC provider in the pool
+gcloud iam workload-identity-pools providers create-oidc caa-k8s-provider \
+  --project=${PROJECT_ID} \
+  --location=global \
+  --workload-identity-pool=caa-direct-wif-pool \
+  --issuer-uri="${OIDC_ISSUER}" \
+  --allowed-audiences="${PROJECT_ID}.svc.id.goog" \
+  --attribute-mapping="google.subject=assertion.sub,attribute.namespace=assertion['kubernetes.io']['namespace'],attribute.service_account_name=assertion['kubernetes.io']['serviceaccount']['name']" \
+  --attribute-condition="assertion.sub.startsWith('system:serviceaccount:')"
+
+# Get the full provider resource name (save this!)
+PROVIDER_NAME="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/caa-direct-wif-pool/providers/caa-k8s-provider"
+echo "Provider Name: ${PROVIDER_NAME}"
+echo "Full Audience: //iam.googleapis.com/${PROVIDER_NAME}"
+```
+
+**Save these values - you'll need them for deployment:**
+```bash
+export WORKLOAD_POOL="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/caa-direct-wif-pool"
+export CLUSTER_ID="//iam.googleapis.com/${PROVIDER_NAME}"
 ```
 
 ## Step 3: Create GCP Service Account
@@ -192,13 +234,20 @@ gcloud projects add-iam-policy-binding ${PROJECT_ID} \
 Allow the Kubernetes service account to impersonate the GCP service account.
 
 ```bash
-# Add IAM policy binding for workload identity
+# Add IAM policy bindings for workload identity (using custom pool)
+# This allows the K8s SA to impersonate the GSA
 gcloud iam service-accounts add-iam-policy-binding ${GSA_EMAIL} \
   --project=${PROJECT_ID} \
   --role="roles/iam.workloadIdentityUser" \
-  --member="principal://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${WORKLOAD_POOL}/subject/system:serviceaccount:${NAMESPACE}:${K8S_SERVICE_ACCOUNT}"
+  --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/caa-direct-wif-pool/attribute.service_account_name/${K8S_SERVICE_ACCOUNT}"
 
-# Verify the binding
+# Also grant token creator role
+gcloud iam service-accounts add-iam-policy-binding ${GSA_EMAIL} \
+  --project=${PROJECT_ID} \
+  --role="roles/iam.serviceAccountTokenCreator" \
+  --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/caa-direct-wif-pool/attribute.service_account_name/${K8S_SERVICE_ACCOUNT}"
+
+# Verify the bindings
 gcloud iam service-accounts get-iam-policy ${GSA_EMAIL} \
   --project=${PROJECT_ID}
 ```
@@ -207,8 +256,11 @@ You should see output like:
 ```yaml
 bindings:
 - members:
-  - principal://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/my-project.svc.id.goog/subject/system:serviceaccount:confidential-containers-system:cloud-api-adaptor
+  - principalSet://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/caa-direct-wif-pool/attribute.service_account_name/cloud-api-adaptor
   role: roles/iam.workloadIdentityUser
+- members:
+  - principalSet://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/caa-direct-wif-pool/attribute.service_account_name/cloud-api-adaptor
+  role: roles/iam.serviceAccountTokenCreator
 ```
 
 ## Step 6: Deploy Cloud API Adaptor with WIF
@@ -221,12 +273,15 @@ Create a `gcp-wif-values.yaml` file:
 provider: gcp
 
 # Enable GCP Workload Identity Federation
+# IMPORTANT: Use the custom pool provider resource name (not identitynamespace format)
 gcp:
   workloadIdentityFederation:
     enable: true
     serviceAccount: "cloud-api-adaptor@my-gcp-project.iam.gserviceaccount.com"
+    # Token audience - use the GKE workload pool for token validation
     workloadPool: "my-gcp-project.svc.id.goog"
-    cluster: "gke://my-gcp-project/us-central1/my-gke-cluster"
+    # Full WIF provider resource name (from Step 2b)
+    cluster: "//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/caa-direct-wif-pool/providers/caa-k8s-provider"
 
 # GCP provider configuration (non-sensitive)
 providerConfigs:
