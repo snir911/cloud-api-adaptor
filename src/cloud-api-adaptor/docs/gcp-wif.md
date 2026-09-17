@@ -435,22 +435,6 @@ helm install peerpods ./install/charts/peerpods \
   --set "gcp.workloadIdentityFederation.cluster=${PROVIDER_NAME}"
 ```
 
-### Option B: Add WIF to Existing Deployment
-
-If you already have CAA deployed with static credentials:
-
-1. Create the WIF values file (as shown above)
-2. Upgrade the Helm release with your existing config plus WIF:
-
-```bash
-helm upgrade peerpods ./install/charts/peerpods \
-  --namespace ${NAMESPACE} \
-  -f my-gcp-config.yaml \
-  -f gcp-wif-values.yaml
-```
-
-3. After verifying WIF is working (see Step 7), remove the static credentials from your config file and upgrade again
-
 ## Step 7: Verify WIF is Working
 
 ### 1. Check Secret Contains WIF Credentials
