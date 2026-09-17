@@ -284,9 +284,9 @@ gcloud iam workload-identity-pools providers create-oidc caa-k8s-provider \
   --attribute-condition="assertion.sub.startsWith('system:serviceaccount:')"
 
 # Get the full provider resource name (save this!)
-PROVIDER_NAME="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/caa-direct-wif-pool/providers/caa-k8s-provider"
-echo "Provider Name: ${PROVIDER_NAME}"
-echo "Full Audience: //iam.googleapis.com/${PROVIDER_NAME}"
+# IMPORTANT: Include the //iam.googleapis.com/ prefix - this is required for the audience field
+PROVIDER_NAME="//iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/caa-direct-wif-pool/providers/caa-k8s-provider"
+echo "Provider Name (with prefix): ${PROVIDER_NAME}"
 ```
 
 **Save these values - you'll need them for deployment:**
