@@ -11,8 +11,56 @@ Workload Identity Federation allows your CAA pods to authenticate to GCP without
 > GKE's standard Workload Identity uses a metadata server proxy to provide credentials. However, when CAA runs with `hostNetwork: true` (required for pod-VM tunneling), the pod **bypasses the proxy** and reads the node's service account from the GCE metadata server instead.
 >
 > Direct WIF solves this by creating a custom Workload Identity Pool and OIDC provider that exchanges Kubernetes service account tokens for GCP credentials via the Security Token Service (STS), without relying on the metadata server.
->
-> **Important**: This implementation uses a **custom workload identity pool**, not GKE's built-in `PROJECT_ID.svc.id.goog` pool, because the built-in pool only works with the metadata server (which `hostNetwork: true` bypasses).
+
+## Architecture: Two Workload Identity Components
+
+This implementation requires **both** components working together:
+
+### 1. GKE Workload Identity (Enabled on Cluster)
+- **Purpose**: Allows Kubernetes to issue service account tokens
+- **What it does**: Configures the K8s API server to sign tokens with audience `PROJECT_ID.svc.id.goog`
+- **What it creates**: The pool `PROJECT_ID.svc.id.goog` (for token issuance only)
+- **Used by**: Standard GKE Workload Identity (with metadata server)
+
+### 2. Custom Workload Identity Pool (Created in Step 2b)
+- **Purpose**: Validates tokens and exchanges them for GCP credentials
+- **What it does**: Direct token exchange via STS (bypasses metadata server)
+- **What it creates**: Pool `caa-direct-wif-pool` with OIDC provider
+- **Used by**: CAA with `hostNetwork: true`
+
+### How They Work Together
+
+```
+┌─────────────────┐
+│ GKE Cluster     │ ← (1) GKE WI enabled: can issue tokens
+└────────┬────────┘
+         │ Issues token with audience: PROJECT_ID.svc.id.goog
+         ▼
+┌─────────────────┐
+│ CAA Pod         │ ← (2) Projected token volume
+│ (hostNetwork)   │     Token mounted at /var/run/secrets/tokens/gcp-ksa/token
+└────────┬────────┘
+         │ Reads token + credentials JSON
+         ▼
+┌─────────────────┐
+│ GCP STS         │ ← (3) Custom WIF pool validates token
+│ (Token Service) │     Pool: caa-direct-wif-pool
+└────────┬────────┘     Audience: PROJECT_ID.svc.id.goog (matches token)
+         │ Returns federated token
+         ▼
+┌─────────────────┐
+│ GCP IAM         │ ← (4) Impersonates GSA
+│                 │     Returns short-lived credentials
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Compute Engine  │ ← (5) CAA creates peer pods
+│ API             │
+└─────────────────┘
+```
+
+**Key Point**: You need GKE Workload Identity enabled for step (1) to work, even though you're creating a custom pool for steps (3-4).
 
 ## Benefits
 
@@ -55,6 +103,12 @@ echo "GSA Email: ${GSA_EMAIL}"
 
 ### Check if Workload Identity is Enabled on GKE
 
+**IMPORTANT**: For direct WIF with `hostNetwork: true`, you need **BOTH**:
+1. GKE Workload Identity enabled (for token issuance)
+2. A custom workload identity pool (created in Step 2b)
+
+The GKE Workload Identity allows Kubernetes to issue service account tokens, but the custom pool handles the actual authentication (bypassing the metadata server).
+
 ```bash
 # Check if your GKE cluster has Workload Identity enabled
 WI_POOL=$(gcloud container clusters describe ${CLUSTER_NAME} \
@@ -66,18 +120,17 @@ if [ -n "${WI_POOL}" ]; then
   echo "✓ Workload Identity is enabled"
   echo "  Workload Pool: ${WI_POOL}"
   export WORKLOAD_POOL="${WI_POOL}"
-  export CLUSTER_ID="gke://${PROJECT_ID}/${REGION}/${CLUSTER_NAME}"
 else
   echo "✗ Workload Identity is NOT enabled on this cluster"
-  echo "  See 'Enabling Workload Identity on GKE' section below"
+  echo "  You MUST enable it for token issuance (see section below)"
 fi
 ```
 
-**If Workload Identity is NOT enabled**, you have two options:
-1. Enable it on your GKE cluster (see section below) - **Recommended**
-2. Create a manual workload identity pool (see "Self-Managed Kubernetes" section)
+**If Workload Identity is NOT enabled**, you must enable it (Step 1.3 below). This is required even though you'll create a custom pool in Step 2b.
 
-### Enabling Workload Identity on GKE
+### 1.3 Enabling Workload Identity on GKE (Required)
+
+**Why this is required**: Enabling GKE Workload Identity allows the Kubernetes API server to issue service account tokens with the `PROJECT_ID.svc.id.goog` audience. The custom WIF pool (Step 2b) will validate these tokens.
 
 If the check above shows Workload Identity is not enabled, enable it:
 
@@ -129,9 +182,17 @@ gcloud services enable \
   --project=${PROJECT_ID}
 ```
 
-## Step 2b: Create Custom Workload Identity Pool
+## Step 2b: Create Custom Workload Identity Pool (Required)
 
-For direct WIF with `hostNetwork: true`, we need to create a custom workload identity pool and OIDC provider:
+**Why a custom pool is required**: GKE's built-in workload identity pool (`PROJECT_ID.svc.id.goog`) only works through the metadata server. When CAA runs with `hostNetwork: true`, it bypasses the metadata server and needs direct token exchange via a custom pool.
+
+The custom pool will:
+- Accept tokens issued by your GKE cluster (with audience `PROJECT_ID.svc.id.goog`)
+- Validate them against the cluster's OIDC issuer
+- Exchange them for GCP credentials
+- Allow service account impersonation
+
+Create the custom workload identity pool and OIDC provider:
 
 ```bash
 # Create the workload identity pool
