@@ -105,6 +105,8 @@ true
 true
     {{- end -}}
   {{- end -}}
+{{- end -}}
+{{- end -}}
 
 {{/*
 GCP Workload Identity Federation: mount projected service account token when enabled.
