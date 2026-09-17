@@ -43,3 +43,18 @@ install/charts/peerpods/providers/*-secrets.yaml
 # Helm chart dependencies
 **/charts/*.tgz
 **/install/charts/peerpods/charts/
+# Claude Code sessions
+.claude-sessions/
+claudtainer-sessions/
+
+# Local values files for testing
+gcp-wif-values.yaml
+*-values.local.yaml
+
+# Build artifacts
+podvm-payload/
+src/cloud-api-adaptor/podvm/skopeo/
+src/kata-containers/
+
+# Temporary development files
+Dockerfile2
