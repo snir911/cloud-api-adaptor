@@ -660,6 +660,11 @@ gcloud iam service-accounts remove-iam-policy-binding ${GSA_EMAIL} \
   --quiet
 
 # 2. Delete the OIDC provider
+# NOTE: Providers also have a 30-day soft delete period. If you need to recreate
+# a provider with the same name immediately, you must either:
+#   - Undelete it: gcloud iam workload-identity-pools providers undelete caa-k8s-provider \
+#                    --workload-identity-pool=caa-direct-wif-pool --location=global
+#   - Or use a different provider name when recreating
 echo "=== Deleting OIDC Provider ==="
 gcloud iam workload-identity-pools providers delete caa-k8s-provider \
   --workload-identity-pool=caa-direct-wif-pool \
@@ -668,7 +673,7 @@ gcloud iam workload-identity-pools providers delete caa-k8s-provider \
   --quiet
 
 # 3. Delete the workload identity pool
-# NOTE: Workload Identity Pools have a 30-day soft delete period. If you need to
+# NOTE: Workload Identity Pools also have a 30-day soft delete period. If you need to
 # recreate a pool with the same name immediately, you must either:
 #   - Undelete it: gcloud iam workload-identity-pools undelete caa-direct-wif-pool --location=global
 #   - Or use a different pool name when recreating
