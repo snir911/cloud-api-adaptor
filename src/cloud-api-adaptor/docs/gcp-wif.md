@@ -202,6 +202,8 @@ echo "Cluster ID: ${CLUSTER_ID}"
 
 ## Step 2: Enable Required APIs
 
+**Why this is required**: GCP APIs must be explicitly enabled before they can be used. Each API serves a specific purpose in the WIF authentication flow and CAA operation.
+
 ```bash
 gcloud services enable \
   compute.googleapis.com \
@@ -210,6 +212,40 @@ gcloud services enable \
   sts.googleapis.com \
   container.googleapis.com \
   --project=${PROJECT_ID}
+```
+
+**What each API does:**
+
+- **`compute.googleapis.com`** - Compute Engine API
+  - Required for: Creating and managing peer pod VMs
+  - Used by: CAA to launch VM instances for peer pods
+  - Without it: `Error 403: Compute Engine API has not been used in project`
+
+- **`iam.googleapis.com`** - Identity and Access Management API
+  - Required for: Managing service accounts and IAM policies
+  - Used by: Creating workload identity pools, service accounts, and IAM bindings
+  - Without it: Cannot create or configure service accounts
+
+- **`iamcredentials.googleapis.com`** - IAM Service Account Credentials API
+  - Required for: Service account impersonation (generating access tokens)
+  - Used by: The final step of WIF authentication where the federated token is exchanged for GSA credentials
+  - Without it: `Error 403: IAM Service Account Credentials API has not been used`
+
+- **`sts.googleapis.com`** - Security Token Service API
+  - Required for: Exchanging Kubernetes tokens for GCP federated tokens
+  - Used by: The token exchange step in WIF (K8s token → federated token)
+  - Without it: `Error 403: Security Token Service API has not been used`
+
+- **`container.googleapis.com`** - Kubernetes Engine API
+  - Required for: Managing GKE clusters and Workload Identity configuration
+  - Used by: Enabling Workload Identity, querying cluster info, OIDC issuer
+  - Without it: Cannot enable or configure Workload Identity on the cluster
+
+**Verification:**
+
+Check which APIs are already enabled:
+```bash
+gcloud services list --enabled --project=${PROJECT_ID} | grep -E "compute|iam|sts|container"
 ```
 
 ## Step 2b: Create Custom Workload Identity Pool (Required)
