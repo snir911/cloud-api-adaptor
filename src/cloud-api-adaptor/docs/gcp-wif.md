@@ -534,6 +534,114 @@ gcp:
 4. Upgrade the Helm release
 5. Verify pods still work without static credentials
 
+## Cleanup and Uninstallation
+
+### Uninstall CAA with WIF
+
+```bash
+export NAMESPACE="confidential-containers-system"
+
+# Uninstall the Helm release
+helm uninstall peerpods -n ${NAMESPACE}
+
+# Optionally delete the namespace
+kubectl delete namespace ${NAMESPACE}
+```
+
+### Remove GCP Resources
+
+If you want to completely clean up the WIF setup:
+
+```bash
+export PROJECT_ID="my-gcp-project"
+export PROJECT_NUMBER=$(gcloud projects describe ${PROJECT_ID} --format='value(projectNumber)')
+export GSA_EMAIL="cloud-api-adaptor@${PROJECT_ID}.iam.gserviceaccount.com"
+
+# 1. Remove IAM bindings
+echo "=== Removing IAM Bindings ==="
+gcloud iam service-accounts remove-iam-policy-binding ${GSA_EMAIL} \
+  --project=${PROJECT_ID} \
+  --role="roles/iam.workloadIdentityUser" \
+  --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/caa-direct-wif-pool/attribute.service_account_name/cloud-api-adaptor" \
+  --quiet
+
+gcloud iam service-accounts remove-iam-policy-binding ${GSA_EMAIL} \
+  --project=${PROJECT_ID} \
+  --role="roles/iam.serviceAccountTokenCreator" \
+  --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/caa-direct-wif-pool/attribute.service_account_name/cloud-api-adaptor" \
+  --quiet
+
+# 2. Delete the OIDC provider
+echo "=== Deleting OIDC Provider ==="
+gcloud iam workload-identity-pools providers delete caa-k8s-provider \
+  --workload-identity-pool=caa-direct-wif-pool \
+  --project=${PROJECT_ID} \
+  --location=global \
+  --quiet
+
+# 3. Delete the workload identity pool
+echo "=== Deleting Workload Identity Pool ==="
+gcloud iam workload-identity-pools delete caa-direct-wif-pool \
+  --project=${PROJECT_ID} \
+  --location=global \
+  --quiet
+
+# 4. Remove GCP project IAM bindings (if you created them)
+echo "=== Removing Project IAM Bindings ==="
+gcloud projects remove-iam-policy-binding ${PROJECT_ID} \
+  --member="serviceAccount:${GSA_EMAIL}" \
+  --role="roles/compute.instanceAdmin.v1" \
+  --quiet
+
+gcloud projects remove-iam-policy-binding ${PROJECT_ID} \
+  --member="serviceAccount:${GSA_EMAIL}" \
+  --role="roles/iam.serviceAccountUser" \
+  --quiet
+
+# 5. Delete the GCP service account (WARNING: This is destructive!)
+echo "=== Deleting GCP Service Account ==="
+read -p "Are you sure you want to delete the service account ${GSA_EMAIL}? (yes/no) " -r
+if [[ $REPLY == "yes" ]]; then
+  gcloud iam service-accounts delete ${GSA_EMAIL} \
+    --project=${PROJECT_ID} \
+    --quiet
+  echo "Service account deleted"
+else
+  echo "Service account deletion skipped"
+fi
+```
+
+### Cleanup Verification
+
+```bash
+# Verify the pool is deleted
+gcloud iam workload-identity-pools list \
+  --project=${PROJECT_ID} \
+  --location=global
+
+# Verify the service account still exists (if you kept it)
+gcloud iam service-accounts list \
+  --project=${PROJECT_ID} \
+  --filter="email:cloud-api-adaptor@"
+
+# Verify no CAA pods are running
+kubectl get pods -n ${NAMESPACE} -l app=cloud-api-adaptor
+```
+
+### Partial Cleanup (Keep Infrastructure)
+
+If you want to disable WIF but keep the GCP resources for future use:
+
+```bash
+# Just disable WIF in the Helm values
+helm upgrade peerpods ./install/charts/peerpods \
+  --namespace ${NAMESPACE} \
+  --set gcp.workloadIdentityFederation.enable=false \
+  --reuse-values
+
+# The GCP service account and workload identity pool remain intact
+```
+
 ## Security Best Practices
 
 1. **Use least privilege**: Grant only the minimum required GCP permissions
