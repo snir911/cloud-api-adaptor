@@ -80,15 +80,60 @@ This implementation requires **both** components working together:
 
 ## Step 1: Set Up Variables and Check Workload Identity
 
-### 1.1 Auto-Detect Your Cluster
+### 1.1 Auto-Detect Your Project and Cluster
 
-If you know your cluster name but not the location:
+**Option A: Auto-detect from current gcloud configuration**
 
 ```bash
-# Set your project and cluster name
+# Get project from current gcloud config
+export PROJECT_ID=$(gcloud config get-value project 2>/dev/null)
+
+if [ -z "${PROJECT_ID}" ]; then
+  echo "No default project set. Set one with:"
+  echo "  gcloud config set project YOUR_PROJECT_ID"
+  echo ""
+  echo "Available projects:"
+  gcloud projects list --format="table(projectId,name)"
+  exit 1
+fi
+
+echo "Using project: ${PROJECT_ID}"
+```
+
+**Option B: Auto-detect from kubectl context (if connected to GKE)**
+
+```bash
+# Extract project from current kubectl context
+CURRENT_CONTEXT=$(kubectl config current-context 2>/dev/null)
+
+if [[ ${CURRENT_CONTEXT} == gke_* ]]; then
+  # Parse GKE context: gke_PROJECT_LOCATION_CLUSTER
+  IFS='_' read -r _ PROJECT_ID CLUSTER_LOCATION CLUSTER_NAME <<< "${CURRENT_CONTEXT}"
+  
+  echo "Auto-detected from kubectl context:"
+  echo "  Project: ${PROJECT_ID}"
+  echo "  Cluster: ${CLUSTER_NAME}"
+  echo "  Location: ${CLUSTER_LOCATION}"
+else
+  echo "Not connected to a GKE cluster or using non-standard context"
+  echo "Current context: ${CURRENT_CONTEXT}"
+  echo "Please set manually or use Option A"
+fi
+```
+
+**Option C: Manual configuration**
+
+```bash
+# Set manually if auto-detection doesn't work
 export PROJECT_ID="my-gcp-project"
 export CLUSTER_NAME="my-gke-cluster"
+```
 
+### 1.1b Auto-Detect Cluster Location
+
+If you have the project and cluster name but not the location:
+
+```bash
 # Auto-detect the cluster location
 export CLUSTER_LOCATION=$(gcloud container clusters list \
   --project=${PROJECT_ID} \
@@ -98,12 +143,83 @@ export CLUSTER_LOCATION=$(gcloud container clusters list \
 
 if [ -z "${CLUSTER_LOCATION}" ]; then
   echo "Error: Cluster '${CLUSTER_NAME}' not found in project '${PROJECT_ID}'"
+  echo ""
   echo "Available clusters:"
   gcloud container clusters list --project=${PROJECT_ID} --format="table(name,location)"
   exit 1
 fi
 
 echo "Found cluster: ${CLUSTER_NAME} in location: ${CLUSTER_LOCATION}"
+```
+
+### 1.1c Complete Auto-Detection Script (Recommended)
+
+This script tries all detection methods and falls back gracefully:
+
+```bash
+#!/bin/bash
+
+# Try to detect from kubectl context first (most reliable for GKE users)
+CURRENT_CONTEXT=$(kubectl config current-context 2>/dev/null)
+
+if [[ ${CURRENT_CONTEXT} == gke_* ]]; then
+  echo "=== Auto-detecting from kubectl context ==="
+  IFS='_' read -r _ PROJECT_ID CLUSTER_LOCATION CLUSTER_NAME <<< "${CURRENT_CONTEXT}"
+  echo "✓ Project: ${PROJECT_ID}"
+  echo "✓ Cluster: ${CLUSTER_NAME}"
+  echo "✓ Location: ${CLUSTER_LOCATION}"
+else
+  echo "=== Manual/gcloud config detection ==="
+  
+  # Get project from gcloud config
+  PROJECT_ID=$(gcloud config get-value project 2>/dev/null)
+  
+  if [ -z "${PROJECT_ID}" ]; then
+    echo "Error: No project detected. Please set one:"
+    echo "  gcloud config set project YOUR_PROJECT_ID"
+    echo ""
+    echo "Available projects:"
+    gcloud projects list --format="table(projectId,name)" 2>/dev/null
+    exit 1
+  fi
+  
+  echo "✓ Project: ${PROJECT_ID}"
+  
+  # Prompt for cluster name if not detected
+  if [ -z "${CLUSTER_NAME}" ]; then
+    echo ""
+    echo "Available clusters in ${PROJECT_ID}:"
+    gcloud container clusters list --project=${PROJECT_ID} --format="table(name,location)"
+    echo ""
+    read -p "Enter cluster name: " CLUSTER_NAME
+  fi
+  
+  # Auto-detect location
+  CLUSTER_LOCATION=$(gcloud container clusters list \
+    --project=${PROJECT_ID} \
+    --filter="name:${CLUSTER_NAME}" \
+    --format="value(location)" \
+    --limit=1)
+  
+  if [ -z "${CLUSTER_LOCATION}" ]; then
+    echo "Error: Cluster '${CLUSTER_NAME}' not found"
+    exit 1
+  fi
+  
+  echo "✓ Cluster: ${CLUSTER_NAME}"
+  echo "✓ Location: ${CLUSTER_LOCATION}"
+fi
+
+# Export for use in subsequent commands
+export PROJECT_ID
+export CLUSTER_NAME
+export CLUSTER_LOCATION
+
+echo ""
+echo "=== Configuration detected ==="
+echo "export PROJECT_ID=\"${PROJECT_ID}\""
+echo "export CLUSTER_NAME=\"${CLUSTER_NAME}\""
+echo "export CLUSTER_LOCATION=\"${CLUSTER_LOCATION}\""
 ```
 
 ### 1.2 Set Up All Variables
