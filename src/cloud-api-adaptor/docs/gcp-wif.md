@@ -707,6 +707,10 @@ gcloud iam workload-identity-pools providers delete caa-k8s-provider \
   --quiet
 
 # 3. Delete the workload identity pool
+# NOTE: Workload Identity Pools have a 30-day soft delete period. If you need to
+# recreate a pool with the same name immediately, you must either:
+#   - Undelete it: gcloud iam workload-identity-pools undelete caa-direct-wif-pool --location=global
+#   - Or use a different pool name when recreating
 echo "=== Deleting Workload Identity Pool ==="
 gcloud iam workload-identity-pools delete caa-direct-wif-pool \
   --project=${PROJECT_ID} \
