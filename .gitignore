@@ -58,3 +58,6 @@ src/kata-containers/
 
 # Temporary development files
 Dockerfile2
+
+# Local development documentation
+.docs-local/
