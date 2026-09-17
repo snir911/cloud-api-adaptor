@@ -80,15 +80,39 @@ This implementation requires **both** components working together:
 
 ## Step 1: Set Up Variables and Check Workload Identity
 
+### 1.1 Auto-Detect Your Cluster
+
+If you know your cluster name but not the location:
+
 ```bash
-# GCP Project configuration
+# Set your project and cluster name
 export PROJECT_ID="my-gcp-project"
+export CLUSTER_NAME="my-gke-cluster"
+
+# Auto-detect the cluster location
+export CLUSTER_LOCATION=$(gcloud container clusters list \
+  --project=${PROJECT_ID} \
+  --filter="name:${CLUSTER_NAME}" \
+  --format="value(location)" \
+  --limit=1)
+
+if [ -z "${CLUSTER_LOCATION}" ]; then
+  echo "Error: Cluster '${CLUSTER_NAME}' not found in project '${PROJECT_ID}'"
+  echo "Available clusters:"
+  gcloud container clusters list --project=${PROJECT_ID} --format="table(name,location)"
+  exit 1
+fi
+
+echo "Found cluster: ${CLUSTER_NAME} in location: ${CLUSTER_LOCATION}"
+```
+
+### 1.2 Set Up All Variables
+
+```bash
+# Project configuration (already set above)
 export PROJECT_NUMBER=$(gcloud projects describe ${PROJECT_ID} --format='value(projectNumber)')
-export REGION="us-central1"
-export ZONE="${REGION}-a"
 
 # Kubernetes configuration
-export CLUSTER_NAME="my-gke-cluster"
 export NAMESPACE="confidential-containers-system"
 export K8S_SERVICE_ACCOUNT="cloud-api-adaptor"
 
@@ -96,9 +120,15 @@ export K8S_SERVICE_ACCOUNT="cloud-api-adaptor"
 export GSA_NAME="cloud-api-adaptor"
 export GSA_EMAIL="${GSA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
+# Display configuration
+echo "=== Configuration ==="
 echo "Project ID: ${PROJECT_ID}"
 echo "Project Number: ${PROJECT_NUMBER}"
-echo "GSA Email: ${GSA_EMAIL}"
+echo "Cluster Name: ${CLUSTER_NAME}"
+echo "Cluster Location: ${CLUSTER_LOCATION}"
+echo "Namespace: ${NAMESPACE}"
+echo "GCP Service Account: ${GSA_EMAIL}"
+echo "K8s Service Account: ${K8S_SERVICE_ACCOUNT}"
 ```
 
 ### Check if Workload Identity is Enabled on GKE
@@ -112,7 +142,7 @@ The GKE Workload Identity allows Kubernetes to issue service account tokens, but
 ```bash
 # Check if your GKE cluster has Workload Identity enabled
 WI_POOL=$(gcloud container clusters describe ${CLUSTER_NAME} \
-  --region=${REGION} \
+  --location=${CLUSTER_LOCATION} \
   --project=${PROJECT_ID} \
   --format="value(workloadIdentityConfig.workloadPool)")
 
@@ -137,7 +167,7 @@ If the check above shows Workload Identity is not enabled, enable it:
 ```bash
 # Enable Workload Identity on the cluster
 gcloud container clusters update ${CLUSTER_NAME} \
-  --region=${REGION} \
+  --location=${CLUSTER_LOCATION} \
   --project=${PROJECT_ID} \
   --workload-pool=${PROJECT_ID}.svc.id.goog
 
@@ -145,7 +175,7 @@ gcloud container clusters update ${CLUSTER_NAME} \
 # (Find your node pool name first)
 gcloud container node-pools list \
   --cluster=${CLUSTER_NAME} \
-  --region=${REGION} \
+  --location=${CLUSTER_LOCATION} \
   --project=${PROJECT_ID}
 
 # Update each node pool
@@ -153,7 +183,7 @@ export NODE_POOL="default-pool"  # replace with your actual node pool name
 
 gcloud container node-pools update ${NODE_POOL} \
   --cluster=${CLUSTER_NAME} \
-  --region=${REGION} \
+  --location=${CLUSTER_LOCATION} \
   --project=${PROJECT_ID} \
   --workload-metadata=GKE_METADATA
 ```
@@ -164,7 +194,7 @@ After enabling, set the variables:
 
 ```bash
 export WORKLOAD_POOL="${PROJECT_ID}.svc.id.goog"
-export CLUSTER_ID="gke://${PROJECT_ID}/${REGION}/${CLUSTER_NAME}"
+export CLUSTER_ID="gke://${PROJECT_ID}/${CLUSTER_LOCATION}/${CLUSTER_NAME}"
 
 echo "Workload Pool: ${WORKLOAD_POOL}"
 echo "Cluster ID: ${CLUSTER_ID}"
